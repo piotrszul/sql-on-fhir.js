@@ -6,7 +6,10 @@ const view = {
   resource: 'Observation',
   select: [
     { column: [{ name: 'id', path: 'getResourceKey()', type: 'string' }] },
-    { forEach: 'component', column: [{ name: 'comp_code', path: 'code.coding.first().code', type: 'string' }] },
+    {
+      forEach: 'component',
+      column: [{ name: 'comp_code', path: 'code.coding.first().code', type: 'string' }],
+    },
   ],
 }
 

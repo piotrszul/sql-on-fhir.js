@@ -18,11 +18,20 @@ function loadBenchmarks(dir) {
 
 function defaultRegistry() {
   const cfg = loadConfig()
-  if (!cfg?.synthea?.jar) throw new Error('No synthea config — copy tools/executors.config.sample.json to executors.config.json')
+  if (!cfg?.synthea?.jar)
+    throw new Error('No synthea config — copy tools/executors.config.sample.json to executors.config.json')
   return { synthea: makeSyntheaExecutor(cfg.synthea) }
 }
 
-export async function run({ target, size, group, force = false, dir, dataRoot = join(dir, 'data'), registry }) {
+export async function run({
+  target,
+  size,
+  group,
+  force = false,
+  dir,
+  dataRoot = join(dir, 'data'),
+  registry,
+}) {
   registry = registry || defaultRegistry()
   const all = loadBenchmarks(dir)
   const selected = group

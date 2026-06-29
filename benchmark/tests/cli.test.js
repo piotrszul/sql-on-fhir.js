@@ -8,10 +8,17 @@ function setup() {
   const dir = mkdtempSync(join(tmpdir(), 'bench-cli-'))
   const dataRoot = join(dir, 'data')
   const file = {
-    title: 'clinical-flat', fhirVersion: '4.0.1', group: 'g',
+    title: 'clinical-flat',
+    fhirVersion: '4.0.1',
+    group: 'g',
     dataset: {
-      name: 'd', kind: 'synthea', version: '3.2.0', resources: ['Condition'],
-      sizes: { s: { population: 100 } }, defaultSize: 's', params: { seed: 589 },
+      name: 'd',
+      kind: 'synthea',
+      version: '3.2.0',
+      resources: ['Condition'],
+      sizes: { s: { population: 100 } },
+      defaultSize: 's',
+      params: { seed: 589 },
     },
     cases: [{ title: 'c', view: { resource: 'Condition' } }],
   }
@@ -28,7 +35,13 @@ const fakeRegistry = {
 
 test('run materializes a single benchmark file by name', async () => {
   const { dir, dataRoot } = setup()
-  const manifests = await run({ target: 'clinical-flat.json', size: 's', dir, dataRoot, registry: fakeRegistry })
+  const manifests = await run({
+    target: 'clinical-flat.json',
+    size: 's',
+    dir,
+    dataRoot,
+    registry: fakeRegistry,
+  })
   expect(manifests).toHaveLength(1)
   expect(manifests[0].resources.Condition).toBe(2)
   rmSync(dir, { recursive: true, force: true })

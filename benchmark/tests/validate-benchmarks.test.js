@@ -5,7 +5,9 @@ const base = () => ({
   title: 't',
   fhirVersion: '4.0.1',
   dataset: {
-    name: 'd', kind: 'synthea', version: '3.2.0',
+    name: 'd',
+    kind: 'synthea',
+    version: '3.2.0',
     resources: ['Condition'],
     sizes: { s: { population: 100 }, m: { population: 1000 } },
     defaultSize: 's',
@@ -26,7 +28,12 @@ test('case view.resource must be in dataset.resources', () => {
 test('reference functions are allowed (single-resource is a measurement-setup property)', () => {
   const f = base()
   f.cases[0].view.select = [
-    { column: [{ name: 'id', path: 'getResourceKey()' }, { name: 'subj', path: 'getReferenceKey(subject)' }] },
+    {
+      column: [
+        { name: 'id', path: 'getResourceKey()' },
+        { name: 'subj', path: 'getReferenceKey(subject)' },
+      ],
+    },
   ]
   expect(validateBenchmark(f)).toEqual([])
 })
@@ -44,8 +51,11 @@ test('defaultSize must be a declared size', () => {
 })
 
 test('group members must declare identical size-tier names', () => {
-  const a = base(); a.group = 'g'
-  const b = base(); b.group = 'g'; b.dataset.sizes = { s: { population: 5 } }
+  const a = base()
+  a.group = 'g'
+  const b = base()
+  b.group = 'g'
+  b.dataset.sizes = { s: { population: 5 } }
   expect(validateGroup([a, b]).some((e) => e.includes('group "g"'))).toBe(true)
 })
 

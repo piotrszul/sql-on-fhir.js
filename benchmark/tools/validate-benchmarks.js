@@ -25,7 +25,8 @@ export function validateBenchmark(file) {
       errors.push(`case "${c.title}": view.resource "${res}" not in dataset.resources`)
 
     for (const sz of Object.keys(c.expectCount || {})) {
-      if (!sizes.includes(sz)) errors.push(`case "${c.title}": expectCount size "${sz}" is not a declared size`)
+      if (!sizes.includes(sz))
+        errors.push(`case "${c.title}": expectCount size "${sz}" is not a declared size`)
     }
   }
   return errors
@@ -36,9 +37,15 @@ export function validateGroup(files) {
   const groups = {}
   for (const f of files) if (f.group) (groups[f.group] ||= []).push(f)
   for (const [g, members] of Object.entries(groups)) {
-    const tierSets = members.map((m) => Object.keys(m.dataset?.sizes || {}).sort().join(','))
+    const tierSets = members.map((m) =>
+      Object.keys(m.dataset?.sizes || {})
+        .sort()
+        .join(','),
+    )
     if (new Set(tierSets).size > 1)
-      errors.push(`group "${g}": members declare differing size-tier names (${[...new Set(tierSets)].join(' vs ')})`)
+      errors.push(
+        `group "${g}": members declare differing size-tier names (${[...new Set(tierSets)].join(' vs ')})`,
+      )
   }
   return errors
 }
