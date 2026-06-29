@@ -26,8 +26,10 @@ covers only the first; the others are explicitly deferred.
 
 1. **The benchmark artifact (THIS SPEC):** inline benchmark case files (view +
    dataset recipe + expectations), a curated Synthea-based view set, a
-   declarative dataset-recipe format, a light result-report schema, and a
-   reference materialization tool.
+   declarative dataset-recipe format, a light result-report schema, a
+   reference materialization tool, and a **reference benchmark-runner in
+   `sof-js`** (§11) that wires the artifact end-to-end and produces the first
+   blessed `expectCount` values.
 2. **Benchmark report schema (lightly sketched here, §10):** analogous to
    `test-report.schema.json`, for implementers to record their own numbers.
    Defined minimally now; full treatment deferred.
@@ -37,8 +39,10 @@ covers only the first; the others are explicitly deferred.
 
 ### Explicitly out of scope / deferred to future extensions
 
-- The benchmark **runner / timing loop / engine glue**. This repo ships **no**
-  execution or measurement code; each implementation brings its own runner.
+- A benchmark **runner / timing loop / engine glue inside the `benchmark/`
+  artifact**. The artifact stays declarative and ships no execution code. The
+  *reference* runner lives in `sof-js` (in scope, §11); every other
+  implementation brings its own runner.
 - **Referenced (shared-catalog) datasets** — the format is inline-first; a
   `{ "ref": "<id>" }` escape hatch to a shared catalog is a future extension.
 - **The QuestionnaireResponse (QR) generator and QR-based cases** — Synthea-based
@@ -254,16 +258,22 @@ bun run bench:validate                        # schema-check all benchmark files
 
 ```
 benchmark/
-  README.md                     # the materialization + measurement protocol (prose)
+  README.md                     # the materialization + integration protocol (prose)
   benchmark.schema.json         # PUBLIC CONTRACT — inline benchmark file format
   benchmark-report.schema.json  # PUBLIC CONTRACT — result report format (light, §10)
   *.json                        # inline benchmark files (view + recipe + expectations)
   tools/                        # reference materialization tool + validators (NO runner)
   data/                         # materialized output — UNTRACKED (.gitignore)
+
+sof-js/
+  …                             # the reference benchmark-runner lives here (§11),
+                                # NOT in the benchmark/ artifact
 ```
 
 `benchmark.schema.json` may extend `tests.schema.json` concepts additively where
-it makes sense (the file shape deliberately mirrors a conformance file).
+it makes sense (the file shape deliberately mirrors a conformance file). The
+reference benchmark-runner is an *implementation* and therefore lives in
+`sof-js`, keeping the `benchmark/` artifact free of execution code.
 
 ## 9. Validation & test-first
 
@@ -303,7 +313,66 @@ environment is sub-project #3, not this spec.
 `size` is a result dimension so runtime-vs-size scaling curves can be plotted
 per `(benchmark, size, implementation)`.
 
-## 11. Use cases
+## 11. Packaging, distribution & integration
+
+The benchmark reuses the conformance suite's distribution and integration model
+(README §"Implement a test runner" / §"Generate a test report"), adding one step
+— materialization — that the reference tool absorbs. The artifact is consumed
+*directly from this repo* (checkout / git submodule / sparse-checkout), pinned by
+a **git tag/release**; there is no package-manager publish, exactly as `tests/`
+works today.
+
+### Three distribution layers
+
+| Layer | What | How distributed | Required? |
+|---|---|---|---|
+| **1. Spec artifact** | `benchmark/*.json` + `benchmark.schema.json` + `benchmark-report.schema.json` | Direct from repo, pinned by tag. Language-neutral JSON is the contract. | always |
+| **2. Reference materializer** | the Bun/JS tool + executor config (`benchmark/tools/`) | Ships in-repo; run it, or reimplement from the declarative recipe | convenience |
+| **3. Materialized data** | the NDJSON itself | **Not shipped initially** — generated locally by layer 2. Future `kind: download` publishes prebuilt data to an official host | future |
+
+Versioning (Principle IV): a report names the benchmark tag it ran against;
+changing a `view` or an `expectCount` is a versioned change, so reports stay
+comparable.
+
+### The benchmark-runner contract (what an author implements)
+
+Paralleling the existing test-runner contract, an implementation in any language:
+
+1. **Obtain** the `benchmark/` artifact at a pinned tag (submodule/checkout), the
+   same way it already vendors `tests/`.
+2. **Materialize** the data: `bun run bench:data <file|group> --size m` →
+   `data/.../*.ndjson` + `manifest.json` (byte-identical across consumers). If it
+   cannot run Bun, it reimplements from the recipe; later, it downloads prebuilt
+   data.
+3. **Run** its engine: for each `benchmark/*.json`, execute each `case.view`
+   (a ViewDefinition) over the materialized NDJSON for the chosen size **using
+   its own runner + timing harness** (warmup/measurement). This is the
+   engine-specific part the artifact deliberately omits.
+4. **Verify** the output row count against `expectCount[size]` → `ok` /
+   `count_mismatch`.
+5. **Emit** `benchmark-report.json` per `benchmark-report.schema.json` (timing
+   samples, status, input/output rows, environment metadata, and the data
+   version from the manifest).
+6. **(Future)** submit the report to a `releases`-branch aggregation for
+   comparison — mirroring how conformance results are collected today.
+
+The repo provides the views, recipes, reference materializer, schemas, and
+blessed expected counts. The author provides only the runner and timing.
+
+### The `sof-js` reference benchmark-runner (in scope)
+
+`sof-js` is already the reference *view-runner*, so it hosts the reference
+*benchmark-runner*: it materializes (via the layer-2 tool), evaluates each
+benchmark view, times it, checks the row count, and emits a conforming
+`benchmark-report.json`. This:
+
+- dogfoods the artifact end-to-end and gives authors a concrete template, just
+  as `sof-js` demonstrates the test-runner;
+- produces the **first blessed `expectCount` values** (a `--record`/bless mode);
+- keeps execution code in an *implementation*, never in the `benchmark/`
+  artifact — consistent with Principles II and the runner separation above.
+
+## 12. Use cases
 
 1. **Self-tracking:** an implementer materializes the reference data, runs their
    own harness, and tracks their performance over time against a fixed workload.
@@ -311,7 +380,7 @@ per `(benchmark, size, implementation)`.
    (sub-project #3) and the report schema, results become comparable across
    implementations.
 
-## 12. Open questions (to resolve later, not blocking)
+## 13. Open questions (to resolve later, not blocking)
 
 1. **QR generator:** reimplement in JS (drift risk vs. the Java original) vs.
    ship/invoke the Pathling Java generator (heavier dependency).
@@ -323,7 +392,7 @@ per `(benchmark, size, implementation)`.
    (touches sub-project #3).
 5. **Synthea jar provenance** — pin by hash in the manifest.
 
-## 13. Future extensions (deliberately deferred)
+## 14. Future extensions (deliberately deferred)
 
 - Referenced shared-catalog datasets (`{ "ref": "<id>" }`).
 - `kind: qr` and QR-based cases.
