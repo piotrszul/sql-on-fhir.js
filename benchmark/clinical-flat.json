@@ -1,0 +1,48 @@
+{
+  "title": "clinical-flat",
+  "description": "Flatten clustered Synthea clinical resources (Condition, Observation).",
+  "group": "synthea-clinical",
+  "fhirVersion": "4.0.1",
+  "iterations": { "warmup": 1, "measurement": 5 },
+  "dataset": {
+    "name": "synthea-clinical",
+    "kind": "synthea",
+    "version": "3.2.0",
+    "resources": ["Condition", "Observation"],
+    "params": { "seed": 589, "clinicianSeed": 1652609873669, "referenceTime": 20240101, "yearsOfHistory": 1 },
+    "sizes": { "s": { "population": 100 }, "m": { "population": 1000 } },
+    "defaultSize": "m"
+  },
+  "cases": [
+    {
+      "title": "condition flat",
+      "description": "One row per Condition with code and clinical status.",
+      "view": {
+        "resource": "Condition",
+        "select": [
+          {
+            "column": [
+              { "name": "id", "path": "getResourceKey()", "type": "string" },
+              { "name": "code", "path": "code.coding.first().code", "type": "string" },
+              { "name": "clinical_status", "path": "clinicalStatus.coding.first().code", "type": "string" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "title": "observation components",
+      "description": "One row per Observation component (forEach over component).",
+      "view": {
+        "resource": "Observation",
+        "select": [
+          { "column": [{ "name": "id", "path": "getResourceKey()", "type": "string" }] },
+          {
+            "forEach": "component",
+            "column": [{ "name": "comp_code", "path": "code.coding.first().code", "type": "string" }]
+          }
+        ]
+      }
+    }
+  ]
+}
