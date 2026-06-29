@@ -3,14 +3,32 @@
   "description": "Flatten clustered Synthea clinical resources (Condition, Observation).",
   "group": "synthea-clinical",
   "fhirVersion": "4.0.1",
-  "iterations": { "warmup": 1, "measurement": 5 },
+  "iterations": {
+    "warmup": 1,
+    "measurement": 5
+  },
   "dataset": {
     "name": "synthea-clinical",
     "kind": "synthea",
     "version": "3.2.0",
-    "resources": ["Condition", "Observation"],
-    "params": { "seed": 589, "clinicianSeed": 1652609873669, "referenceTime": 20240101, "yearsOfHistory": 1 },
-    "sizes": { "s": { "population": 100 }, "m": { "population": 1000 } },
+    "resources": [
+      "Condition",
+      "Observation"
+    ],
+    "params": {
+      "seed": 589,
+      "clinicianSeed": 1652609873669,
+      "referenceTime": 20240101,
+      "yearsOfHistory": 1
+    },
+    "sizes": {
+      "s": {
+        "population": 100
+      },
+      "m": {
+        "population": 1000
+      }
+    },
     "defaultSize": "m"
   },
   "cases": [
@@ -22,12 +40,28 @@
         "select": [
           {
             "column": [
-              { "name": "id", "path": "getResourceKey()", "type": "string" },
-              { "name": "code", "path": "code.coding.first().code", "type": "string" },
-              { "name": "clinical_status", "path": "clinicalStatus.coding.first().code", "type": "string" }
+              {
+                "name": "id",
+                "path": "getResourceKey()",
+                "type": "string"
+              },
+              {
+                "name": "code",
+                "path": "code.coding.first().code",
+                "type": "string"
+              },
+              {
+                "name": "clinical_status",
+                "path": "clinicalStatus.coding.first().code",
+                "type": "string"
+              }
             ]
           }
         ]
+      },
+      "expectCount": {
+        "s": 6219,
+        "m": 50090
       }
     },
     {
@@ -36,12 +70,30 @@
       "view": {
         "resource": "Observation",
         "select": [
-          { "column": [{ "name": "id", "path": "getResourceKey()", "type": "string" }] },
+          {
+            "column": [
+              {
+                "name": "id",
+                "path": "getResourceKey()",
+                "type": "string"
+              }
+            ]
+          },
           {
             "forEach": "component",
-            "column": [{ "name": "comp_code", "path": "code.coding.first().code", "type": "string" }]
+            "column": [
+              {
+                "name": "comp_code",
+                "path": "code.coding.first().code",
+                "type": "string"
+              }
+            ]
           }
         ]
+      },
+      "expectCount": {
+        "s": 4794,
+        "m": 40983
       }
     }
   ]
