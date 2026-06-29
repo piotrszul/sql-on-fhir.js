@@ -126,31 +126,61 @@ how a `tests/*.json` file groups one `resources` block with many `tests`. The
 benchmark file swaps the literal `resources` array for a `dataset` recipe.
 
 ```jsonc
-// benchmark/observation-flat.json   (mirrors the shape of tests/basic.json)
+// benchmark/clinical-flat.json   (mirrors the shape of tests/basic.json)
 {
-  "title": "observation-flat",
-  "description": "Flatten US-Core blood-pressure Observations from Synthea.",
-  "dataset": { /* declarative recipe — see §4, includes `sizes` + `defaultSize` */ },
+  "title": "clinical-flat",
+  "description": "Flatten clustered clinical resources from Synthea.",
+  "group": "pathling",                       // flat label; coordinates multi-file benchmarks
+  "fhirVersion": "4.0.1",                     // single version in v1 (what Synthea emits)
+  "dataset": {
+    "name": "synthea-clinical",               // human-readable; part of the on-disk dir key (§7)
+    /* declarative recipe — see §4; `resources` may list several types;
+       includes `sizes` + `defaultSize` */
+    "resources": ["Condition", "Encounter", "Observation"]
+  },
+  "iterations": { "warmup": 1, "measurement": 5 },   // recommended defaults; runner may override
   "cases": [
     {
-      "title": "blood pressure components",
+      "title": "condition flat",
+      "view": { "resource": "Condition", "select": [ /* ViewDefinition */ ] },
+      "expectCount": { "s": 6181, "m": 50035 }       // per (case, size); bless-populated
+    },
+    {
+      "title": "observation flat",
       "view": { "resource": "Observation", "select": [ /* ViewDefinition */ ] },
-      "expectCount": { "s": 11455, "m": 106608 }   // per-size; bless-populated
+      "expectCount": { "s": 11455, "m": 106608 }
     }
   ]
 }
 ```
 
+- **One dataset + N cases per file.** The dataset's `resources` may list multiple
+  kept resource types; **each case's `view.resource` MUST be one of them**
+  (validated). So the empirically-clustered clinical resources
+  (Condition/Encounter/Observation) live in one file sharing one population and
+  one materialization; Patient (needing a larger population) is a separate file.
+- **v1 view restriction (validated invariant):** views are **single-root-resource
+  flatten/projection only** — no `getReferenceKey`, no inter-query references, no
+  cross-resource joins. This keeps "keep only the driving resource + no
+  referential integrity" self-consistent; reference-resolving views are a future
+  set on referentially-consistent datasets (§14). `bench:validate` rejects a view
+  that references resource types other than its root.
 - **Views:** a curated, benchmark-specific set. Conformance `tests/` views are
   **not** reused (different purpose: correctness probes on tiny data vs.
   representative workloads on large data).
-- **Grouping:** files are organized around one dataset shape (one population /
-  resource selection). A *named multi-resource benchmark* (e.g. "pathling")
-  spans several files sharing a `group` label and shared size-tier names, so a
-  single materialization request produces a coherent cross-resource benchmark.
-- **Correctness guard:** `expectCount` per `(case, size)`, populated by a "bless"
-  run, reviewed, and committed. A mismatch is recorded (not a hard failure).
-  Content checksums are deferred (need a canonical output-format spec).
+- **`group`** is a flat string label. `bench:data --group <g> --size m`
+  materializes every file in the group at tier `m`; validation requires all files
+  in a group to declare the **same set of size-tier names**.
+- **`fhirVersion`** is a single value (v1: `4.0.1`), validated and recorded in the
+  report; it ties view validity and `expectCount` to one FHIR version.
+- **`iterations`** are recommended warmup/measurement defaults; the runner may
+  override but records the *actual* counts in the report (§10).
+- **Correctness guard:** `expectCount` per `(case, size)`, blessed via
+  `sof-js --record`, **cross-checked analytically** (flatten-only views make the
+  count derivable — see §11), reviewed, and committed by PR. Implicitly keyed by
+  the recipe's Synthea `version` (a version bump requires a re-bless, §13). A
+  mismatch is recorded, not a hard failure. Content checksums deferred (need a
+  canonical output-format spec).
 
 ### Why inline-first (vs. a normalized catalog)
 
@@ -212,6 +242,16 @@ So the scaling model is a **hybrid**: clinical-resource views share one
 short-window population; demographic views get their own larger population. Both
 are expressed as the same `sizes` tiers, with per-dataset populations.
 
+**v1 demographic generation ceiling.** Synthea has no per-resource-type export
+filter, so the materializer generates the full population and **prunes siblings**
+afterward (keeping only `dataset.resources`). For clinical datasets this is cheap
+(small population, 1-yr window). For demographic (Patient-rooted) datasets, N
+Patients requires generating N patients — transiently materializing ~90× N
+Observations before pruning. Since the `download` escape hatch is deferred (§14),
+**v1 caps demographic dataset populations at 10,000 patients**; larger demographic
+sizes are explicitly blocked until `kind: download` lands (not silently omitted —
+Principle V). Clinical datasets keep their full size range.
+
 ### Scaling toolkit (asymmetric, all honest)
 
 | Direction | Lever | Honest? |
@@ -238,16 +278,37 @@ Responsibilities:
 - Resolve a benchmark file (or group) + size → the dataset recipe(s) it needs.
 - Execute each recipe via a **pluggable `kind → executor` registry** (the
   `synthea` executor shells out to the Synthea jar using local config from §4).
-- Materialize into an **untracked** `data/` directory with a provenance
-  `manifest.json` (records recipe params, generator version/identity, per-file
-  row counts, timestamp).
+- Materialize into the **untracked** `data/` directory under the layout contract
+  below, with a provenance `manifest.json` (recipe params, generator
+  version/identity, per-file row counts, timestamp).
+- **Generate-then-prune:** Synthea exports all resource types; the materializer
+  keeps only the recipe's selected `resources` and deletes the rest. (No
+  per-resource-type export filter exists — hence the demographic ceiling, §6.)
 - **Idempotent:** skip when the manifest matches and files are present;
-  `--force` rebuilds. **Content-dedup** identical recipes across files.
-- Keep only the recipe's selected `resources` (discard siblings to save disk).
+  `--force` rebuilds. **Content-dedup** identical recipes across files via the
+  layout key.
 
 It ships **no** runner, timing, or engine code.
 
-Indicative interface (keyed by benchmark/group + size, per earlier decision):
+### On-disk layout contract (materializer ↔ runner interface)
+
+```
+data/<name>_<hash>/<size>/<ResourceType>.ndjson   # one JSON resource per line
+data/<name>_<hash>/<size>/manifest.json           # provenance + per-file row counts
+```
+
+- `<name>` = the dataset's `name` (human-readable, on-disk legibility);
+  `<hash>` = short content hash of the recipe. The full `name_hash` is the dedup
+  key: identical `(name, recipe)` across files → one materialization; the hash
+  guards against same-name/different-content collisions.
+- `<size>` namespaces the tiers so `s`/`m`/`l` coexist without clobbering.
+- Only the recipe's selected `resources` are present; one resource per NDJSON
+  line (what Synthea bulk export already emits) — the lowest-common-denominator
+  format every engine can ingest.
+- The runner locates a case's input as
+  `data/<name>_<hash>/<size>/<view.resource>.ndjson`.
+
+Indicative interface (keyed by benchmark/group + size):
 
 ```bash
 bun run bench:data <file-or-group> --size m   # generate → data/ + manifest
@@ -279,9 +340,13 @@ reference benchmark-runner is an *implementation* and therefore lives in
 
 - Write `benchmark.schema.json` + a failing validation test first; observe it
   fail; then add benchmark files.
-- Meta-tests assert: every benchmark file validates against the schema; every
-  `view` is a structurally valid ViewDefinition; every `expectCount` key matches
-  a declared size; `defaultSize` exists.
+- Meta-tests assert the invariants: every benchmark file validates against the
+  schema; every `view` is a structurally valid ViewDefinition; **every case's
+  `view.resource` ∈ `dataset.resources`**; **every view is single-root-resource
+  flatten only** (no cross-resource reference / `getReferenceKey` / inter-query
+  references — Q5/§5); every `expectCount` key matches a declared size;
+  `defaultSize` exists; all files sharing a `group` declare the same size-tier
+  names; `fhirVersion` is present (v1: `4.0.1`).
 - Fold `bench:validate` into `bun run validate`; keep formatting under
   `check-fmt`. No check is weakened or skipped (Principle V).
 
@@ -290,20 +355,45 @@ reference benchmark-runner is an *implementation* and therefore lives in
 A public contract analogous to `test-report.schema.json`, for implementers to
 record their own numbers. Captures per-case timing samples, a status taxonomy
 (`ok` / `count_mismatch` / `generation_error` / `execution_error`), input/output
-rows, and a free-form **environment metadata** block. Standardizing that
-environment is sub-project #3, not this spec.
+rows, a free-form **environment metadata** block, and a **measurement
+descriptor** that makes each number self-interpreting.
+
+**Measurement boundary is implementer-chosen (Q1).** Cross-implementation
+comparison is deferred (sub-project #3), so each implementer times what fits
+their engine. The *recommended* formulation, grounded in DB-benchmark practice,
+is **execution + a full materialization of the result** (a `CREATE TABLE AS`-style
+table, or CSV output) — never a lazy `count(*)` or returned iterator, which lets
+an optimizer skip producing columns and understates cost. Work is framed as a
+**reverse ETL**: `load` (source JSON → the implementation's internal
+representation; *may be empty*), `execute` (evaluate the ViewDefinition),
+`extract` (materialize the flat output). The recommended timed region is
+`execute + extract`; `load` is the engine-specific, possibly-empty phase.
+
+The `measurement` descriptor declares which phases the samples cover, the sink,
+and the actual iteration counts (recommended defaults come from the benchmark
+file's `iterations`, Q8). `phaseSamplesMs` is optional, for engines that can
+separate phases (valuable precisely because `load` is empty for one engine and
+dominant for another).
 
 ```jsonc
 {
   "implementation": { "name": "sof-js", "version": "2.0.0" },
+  "benchmarkVersion": "<git tag of the artifact>",
   "environment": { "...": "free-form metadata for now" },
+  "measurement": {
+    "phases": ["execute", "extract"],   // timed region: subset of load | execute | extract
+    "sink": "table",                     // table | csv | memory | other
+    "warmup": 1, "iterations": 5         // actual counts used
+  },
   "results": {
-    "observation-flat": {
+    "clinical-flat": {
       "size": "m",
+      "fhirVersion": "4.0.1",
       "cases": [
-        { "title": "blood pressure components", "status": "ok",
+        { "title": "observation flat", "status": "ok",
           "inputRows": 106608, "outputRows": 106608,
-          "samplesMs": [1234, 1240, 1229], "stats": { "min": 1229, "mean": 1234 } }
+          "samplesMs": [1234, 1240, 1229], "stats": { "min": 1229, "mean": 1234 },
+          "phaseSamplesMs": { "load": [], "execute": [923], "extract": [311] } }  // optional
       ]
     }
   }
@@ -311,7 +401,8 @@ environment is sub-project #3, not this spec.
 ```
 
 `size` is a result dimension so runtime-vs-size scaling curves can be plotted
-per `(benchmark, size, implementation)`.
+per `(benchmark, size, implementation)`; `benchmarkVersion` and `fhirVersion`
+pin what the numbers are valid against.
 
 ## 11. Packaging, distribution & integration
 
@@ -368,7 +459,15 @@ benchmark view, times it, checks the row count, and emits a conforming
 
 - dogfoods the artifact end-to-end and gives authors a concrete template, just
   as `sof-js` demonstrates the test-runner;
-- produces the **first blessed `expectCount` values** (a `--record`/bless mode);
+- produces the **first blessed `expectCount` values** (a `--record`/bless mode).
+  Blessing does **not** let `sof-js` silently define truth: each value is
+  **cross-checked analytically** before commit — the v1 single-resource flatten
+  restriction (§5) makes the count derivable (no `forEach`/`where` ⇒ output rows =
+  input resource count; `forEach` over a collection ⇒ sum of collection sizes;
+  `where` ⇒ filtered count), and the reviewer verifies the blessed number against
+  that reasoning and the manifest's input counts for at least the smallest size.
+  Values land by reviewed PR. Requiring a *second implementation* to agree is
+  deferred (§13);
 - keeps execution code in an *implementation*, never in the `benchmark/`
   artifact — consistent with Principles II and the runner separation above.
 
@@ -391,12 +490,26 @@ benchmark view, times it, checks the row count, and emits a conforming
 4. **Download host / published-dataset repository** for `kind: download`
    (touches sub-project #3).
 5. **Synthea jar provenance** — pin by hash in the manifest.
+6. **Synthea cross-environment determinism (FOLLOW-UP — verify):** the
+   committed `expectCount` guard assumes a fixed-seed recipe materializes
+   identical row counts across OS/JVM. Assumed for now; must be empirically
+   verified across at least two environments before the guard is relied upon.
+   If it does not hold, fall back to a relative check against the local
+   manifest's recorded counts. `expectCount` is implicitly keyed by the recipe's
+   pinned generator `version`, so a version bump requires a re-bless rather than
+   silently invalidating counts.
 
 ## 14. Future extensions (deliberately deferred)
 
 - Referenced shared-catalog datasets (`{ "ref": "<id>" }`).
 - `kind: qr` and QR-based cases.
-- `kind: download` for pre-built datasets.
+- `kind: download` for pre-built datasets (also unblocks demographic sizes
+  above the v1 10k ceiling, §6).
+- **Reference-resolving / inter-query-reference views** on referentially-consistent
+  datasets (relaxing the v1 single-resource flatten restriction, §5).
+- **Second-implementation agreement** as a stronger bless gate for `expectCount`
+  (v1 uses analytic cross-check only, §11).
+- Multi-version benchmarking (v1 fixes `fhirVersion: "4.0.1"`, §5).
 - Result-content checksums.
 - VIG-style distribution-preserving up-scaling, if generation/download proves
   too costly at extreme sizes.
