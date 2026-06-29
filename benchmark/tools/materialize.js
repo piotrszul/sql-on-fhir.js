@@ -1,13 +1,7 @@
 import { mkdtempSync, mkdirSync, existsSync, readFileSync, writeFileSync, renameSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { datasetDir, manifestFile } from './layout.js'
-
-function recipeOf(dataset) {
-  // the declarative recipe = the dataset minus presentation-only fields
-  const { name, sizes, defaultSize, ...rest } = dataset
-  return rest
-}
+import { datasetDir, manifestFile, recipeOf } from './layout.js'
 
 function countLines(path) {
   const txt = readFileSync(path, 'utf8')

@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test'
-import { recipeHash, datasetKey, datasetDir, resourceFile, manifestFile } from '../tools/layout.js'
+import { recipeHash, datasetKey, datasetDir, resourceFile, manifestFile, recipeOf } from '../tools/layout.js'
 
 const recipe = { kind: 'synthea', version: '3.2.0', resources: ['Condition'], params: { seed: 589 } }
 
@@ -23,4 +23,22 @@ test('paths place size and resource correctly', () => {
   expect(dir).toBe(`/data/d_${recipeHash(recipe)}/s`)
   expect(resourceFile('/data', 'd', recipe, 's', 'Condition')).toBe(`${dir}/Condition.ndjson`)
   expect(manifestFile('/data', 'd', recipe, 's')).toBe(`${dir}/manifest.json`)
+})
+
+test('recipeOf strips name/sizes/defaultSize and keeps the rest', () => {
+  const dataset = {
+    name: 'd',
+    kind: 'synthea',
+    version: '3.2.0',
+    resources: ['Condition'],
+    params: { seed: 589 },
+    sizes: { s: { population: 100 } },
+    defaultSize: 's',
+  }
+  expect(recipeOf(dataset)).toEqual({
+    kind: 'synthea',
+    version: '3.2.0',
+    resources: ['Condition'],
+    params: { seed: 589 },
+  })
 })

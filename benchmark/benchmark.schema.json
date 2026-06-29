@@ -34,7 +34,8 @@
           "additionalProperties": {
             "type": "object",
             "required": ["population"],
-            "properties": { "population": { "type": "integer", "minimum": 1 } }
+            "properties": { "population": { "type": "integer", "minimum": 1 } },
+            "additionalProperties": false
           }
         },
         "defaultSize": { "type": "string" }

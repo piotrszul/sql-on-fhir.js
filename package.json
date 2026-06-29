@@ -6,7 +6,8 @@
   "scripts": {
     "test": "cd sof-js && bun test && cd .. && bun run bench:test",
     "validate": "cd sof-js && bun run validate && cd .. && bun run bench:validate",
-    "check-fmt": "cd sof-js && bun run check-fmt",
+    "bench:check-fmt": "cd benchmark && bun run check-fmt",
+    "check-fmt": "cd sof-js && bun run check-fmt && cd .. && bun run bench:check-fmt",
     "fmt": "cd sof-js && bun run fmt",
     "build:report": "cd test_report && bun run prepare && bun run build",
     "bench:test": "cd benchmark && bun test",

@@ -30,3 +30,9 @@ export function resourceFile(dataRoot, name, recipe, size, resourceType) {
 export function manifestFile(dataRoot, name, recipe, size) {
   return join(datasetDir(dataRoot, name, recipe, size), 'manifest.json')
 }
+
+export function recipeOf(dataset) {
+  // the declarative recipe = the dataset minus presentation-only fields
+  const { name, sizes, defaultSize, ...rest } = dataset
+  return rest
+}

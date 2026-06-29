@@ -5,7 +5,11 @@ import { spawnSync } from 'node:child_process'
 export function loadConfig() {
   const path = new URL('../executors.config.json', import.meta.url).pathname
   if (!existsSync(path)) return null
-  return JSON.parse(readFileSync(path, 'utf8'))
+  try {
+    return JSON.parse(readFileSync(path, 'utf8'))
+  } catch {
+    return null
+  }
 }
 
 export function makeSyntheaExecutor(config) {

@@ -20,7 +20,8 @@
         "sink": { "enum": ["table", "csv", "memory", "other"] },
         "warmup": { "type": "integer", "minimum": 0 },
         "iterations": { "type": "integer", "minimum": 1 }
-      }
+      },
+      "additionalProperties": false
     },
     "results": {
       "type": "object",
@@ -43,7 +44,8 @@
                 "samplesMs": { "type": "array", "items": { "type": "number" } },
                 "stats": { "type": "object" },
                 "phaseSamplesMs": { "type": "object" }
-              }
+              },
+              "additionalProperties": false
             }
           }
         }

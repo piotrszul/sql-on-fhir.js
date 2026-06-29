@@ -1,10 +1,5 @@
 import { loadResources, timeEvaluate, statsOf } from './benchmark.js'
-import { resourceFile } from '../../benchmark/tools/layout.js'
-
-function recipeOf(dataset) {
-  const { name, sizes, defaultSize, ...rest } = dataset
-  return rest
-}
+import { resourceFile, recipeOf } from '../../benchmark/tools/layout.js'
 
 function runCases({ benchmark, size, dataRoot }) {
   const recipe = recipeOf(benchmark.dataset)
