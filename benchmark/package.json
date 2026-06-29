@@ -1,0 +1,22 @@
+{
+  "name": "sof-benchmark",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "description": "Implementation-agnostic SQL on FHIR benchmark artifact and reference materialization tool",
+  "scripts": {
+    "test": "bun test",
+    "validate": "ajv -s benchmark.schema.json -d \"*.json\" --strict=false && bun run tools/validate-benchmarks.js",
+    "data": "bun run tools/cli.js"
+  },
+  "dependencies": {
+    "ajv": "^8.12.0",
+    "ajv-cli": "^5.0.0"
+  },
+  "prettier": {
+    "printWidth": 110,
+    "tabWidth": 2,
+    "semi": false,
+    "singleQuote": true
+  }
+}

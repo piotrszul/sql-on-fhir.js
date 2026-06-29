@@ -8,7 +8,9 @@
     "validate": "cd sof-js && bun run validate",
     "check-fmt": "cd sof-js && bun run check-fmt",
     "fmt": "cd sof-js && bun run fmt",
-    "build:report": "cd test_report && bun run prepare && bun run build"
+    "build:report": "cd test_report && bun run prepare && bun run build",
+    "bench:test": "cd benchmark && bun test",
+    "bench:validate": "cd benchmark && bun run validate"
   },
   "author": "John Grimes",
   "license": "Apache-2.0"
