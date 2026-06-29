@@ -10,7 +10,9 @@
     "fmt": "cd sof-js && bun run fmt",
     "build:report": "cd test_report && bun run prepare && bun run build",
     "bench:test": "cd benchmark && bun test",
-    "bench:validate": "cd benchmark && bun run validate"
+    "bench:validate": "cd benchmark && bun run validate",
+    "bench:run": "cd sof-js && bun run src/benchmark-run.js",
+    "bench:data": "cd benchmark && bun run data"
   },
   "author": "John Grimes",
   "license": "Apache-2.0"
