@@ -1,25 +1,6 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-const REFERENCE_FNS = ['getReferenceKey', 'getResourceKey']
-
-function pathsOf(view) {
-  // collect every string path/forEach/forEachOrNull/where in the ViewDefinition tree
-  const out = []
-  const walk = (node) => {
-    if (Array.isArray(node)) return node.forEach(walk)
-    if (node && typeof node === 'object') {
-      for (const [k, v] of Object.entries(node)) {
-        if (typeof v === 'string' && ['path', 'forEach', 'forEachOrNull'].includes(k)) out.push(v)
-        else if (k === 'where' && Array.isArray(v)) v.forEach((w) => w?.path && out.push(w.path))
-        else walk(v)
-      }
-    }
-  }
-  walk(view)
-  return out
-}
-
 export function validateBenchmark(file) {
   const errors = []
   const ds = file.dataset || {}
@@ -32,13 +13,6 @@ export function validateBenchmark(file) {
     const res = c.view?.resource
     if (res && !(ds.resources || []).includes(res))
       errors.push(`case "${c.title}": view.resource "${res}" not in dataset.resources`)
-
-    for (const p of pathsOf(c.view)) {
-      for (const fn of REFERENCE_FNS) {
-        if (p.includes(fn))
-          errors.push(`case "${c.title}": uses reference resolution "${fn}" (not allowed in v1)`)
-      }
-    }
 
     for (const sz of Object.keys(c.expectCount || {})) {
       if (!sizes.includes(sz)) errors.push(`case "${c.title}": expectCount size "${sz}" is not a declared size`)

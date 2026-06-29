@@ -23,10 +23,12 @@ test('case view.resource must be in dataset.resources', () => {
   expect(validateBenchmark(f)).toContain('case "c": view.resource "Patient" not in dataset.resources')
 })
 
-test('reference-resolving views are rejected in v1', () => {
+test('reference functions are allowed (single-resource is a measurement-setup property)', () => {
   const f = base()
-  f.cases[0].view.select = [{ column: [{ name: 'k', path: 'getReferenceKey(subject)' }] }]
-  expect(validateBenchmark(f).some((e) => e.includes('reference resolution'))).toBe(true)
+  f.cases[0].view.select = [
+    { column: [{ name: 'id', path: 'getResourceKey()' }, { name: 'subj', path: 'getReferenceKey(subject)' }] },
+  ]
+  expect(validateBenchmark(f)).toEqual([])
 })
 
 test('expectCount keys must be declared sizes', () => {
