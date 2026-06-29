@@ -6,7 +6,7 @@
   "description": "Implementation-agnostic SQL on FHIR benchmark artifact and reference materialization tool",
   "scripts": {
     "test": "bun test",
-    "validate": "ajv -s benchmark.schema.json -d \"*.json\" --strict=false && bun run tools/validate-benchmarks.js",
+    "validate": "bun run tools/validate-benchmarks.js",
     "data": "bun run tools/cli.js"
   },
   "dependencies": {

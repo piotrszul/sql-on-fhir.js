@@ -1,5 +1,15 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import Ajv from 'ajv'
+
+const schema = JSON.parse(readFileSync(new URL('../benchmark.schema.json', import.meta.url), 'utf8'))
+const validate = new Ajv({ strict: false }).compile(schema)
+
+export function validateSchema(file) {
+  const valid = validate(file)
+  if (valid) return []
+  return (validate.errors || []).map((e) => `${e.instancePath || '/'} ${e.message}`)
+}
 
 export function validateBenchmark(file) {
   const errors = []
@@ -46,7 +56,9 @@ export async function main(dir = '.') {
     }
     if (!doc.dataset || !doc.cases) continue
     parsed.push(doc)
-    const errs = validateBenchmark(doc)
+    const schemaErrs = validateSchema(doc)
+    const invariantErrs = validateBenchmark(doc)
+    const errs = [...schemaErrs, ...invariantErrs]
     if (errs.length) {
       failed++
       console.error(`${name}:`)

@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test'
-import { validateBenchmark, validateGroup } from '../tools/validate-benchmarks.js'
+import { validateBenchmark, validateGroup, validateSchema } from '../tools/validate-benchmarks.js'
 
 const base = () => ({
   title: 't',
@@ -47,4 +47,14 @@ test('group members must declare identical size-tier names', () => {
   const a = base(); a.group = 'g'
   const b = base(); b.group = 'g'; b.dataset.sizes = { s: { population: 5 } }
   expect(validateGroup([a, b]).some((e) => e.includes('group "g"'))).toBe(true)
+})
+
+test('validateSchema: well-formed benchmark file returns no errors', () => {
+  expect(validateSchema(base())).toEqual([])
+})
+
+test('validateSchema: file missing required field returns errors', () => {
+  const f = base()
+  delete f.fhirVersion
+  expect(validateSchema(f).length).toBeGreaterThan(0)
 })
