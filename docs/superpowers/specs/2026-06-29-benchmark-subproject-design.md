@@ -159,12 +159,17 @@ benchmark file swaps the literal `resources` array for a `dataset` recipe.
   (validated). So the empirically-clustered clinical resources
   (Condition/Encounter/Observation) live in one file sharing one population and
   one materialization; Patient (needing a larger population) is a separate file.
-- **v1 view restriction (validated invariant):** views are **single-root-resource
-  flatten/projection only** — no `getReferenceKey`, no inter-query references, no
-  cross-resource joins. This keeps "keep only the driving resource + no
-  referential integrity" self-consistent; reference-resolving views are a future
-  set on referentially-consistent datasets (§14). `bench:validate` rejects a view
-  that references resource types other than its root.
+- **Single-resource by measurement setup, not by syntax.** Views may use any
+  FHIRPath, **including `getResourceKey()` and `getReferenceKey()`**. The
+  "single resource / no joins" property is guaranteed by the *measurement setup* —
+  the benchmark always times **one ViewDefinition over one materialized resource
+  type** as a reverse-ETL (load → execute → extract) — not by restricting view
+  syntax. A reference function that resolves into a sibling resource we did not
+  materialize simply yields empty/null; it does not change the single-view row
+  count, so the blessed `expectCount` stays self-consistent. `bench:validate`
+  enforces only that each case's `view.resource` ∈ `dataset.resources` (the root
+  resource the view drives must be present in the materialized data); it does
+  **not** restrict reference functions.
 - **Views:** a curated, benchmark-specific set. Conformance `tests/` views are
   **not** reused (different purpose: correctness probes on tiny data vs.
   representative workloads on large data).
@@ -342,11 +347,11 @@ reference benchmark-runner is an *implementation* and therefore lives in
   fail; then add benchmark files.
 - Meta-tests assert the invariants: every benchmark file validates against the
   schema; every `view` is a structurally valid ViewDefinition; **every case's
-  `view.resource` ∈ `dataset.resources`**; **every view is single-root-resource
-  flatten only** (no cross-resource reference / `getReferenceKey` / inter-query
-  references — Q5/§5); every `expectCount` key matches a declared size;
-  `defaultSize` exists; all files sharing a `group` declare the same size-tier
-  names; `fhirVersion` is present (v1: `4.0.1`).
+  `view.resource` ∈ `dataset.resources`** (reference functions are NOT
+  restricted — single-resource is a measurement-setup property, §5); every
+  `expectCount` key matches a declared size; `defaultSize` exists; all files
+  sharing a `group` declare the same size-tier names; `fhirVersion` is present
+  (v1: `4.0.1`).
 - Fold `bench:validate` into `bun run validate`; keep formatting under
   `check-fmt`. No check is weakened or skipped (Principle V).
 
@@ -461,11 +466,13 @@ benchmark view, times it, checks the row count, and emits a conforming
   as `sof-js` demonstrates the test-runner;
 - produces the **first blessed `expectCount` values** (a `--record`/bless mode).
   Blessing does **not** let `sof-js` silently define truth: each value is
-  **cross-checked analytically** before commit — the v1 single-resource flatten
-  restriction (§5) makes the count derivable (no `forEach`/`where` ⇒ output rows =
+  **cross-checked analytically** before commit — the single-resource measurement
+  setup (§5) makes the count derivable (no `forEach`/`where` ⇒ output rows =
   input resource count; `forEach` over a collection ⇒ sum of collection sizes;
-  `where` ⇒ filtered count), and the reviewer verifies the blessed number against
-  that reasoning and the manifest's input counts for at least the smallest size.
+  `where` ⇒ filtered count; a `getReferenceKey` column over non-materialized
+  siblings yields null and does not change the count), and the reviewer verifies
+  the blessed number against that reasoning and the manifest's input counts for
+  at least the smallest size.
   Values land by reviewed PR. Requiring a *second implementation* to agree is
   deferred (§13);
 - keeps execution code in an *implementation*, never in the `benchmark/`
@@ -505,8 +512,10 @@ benchmark view, times it, checks the row count, and emits a conforming
 - `kind: qr` and QR-based cases.
 - `kind: download` for pre-built datasets (also unblocks demographic sizes
   above the v1 10k ceiling, §6).
-- **Reference-resolving / inter-query-reference views** on referentially-consistent
-  datasets (relaxing the v1 single-resource flatten restriction, §5).
+- **Referentially-consistent multi-resource datasets** so reference functions
+  (allowed in v1 views but resolving to null over single-resource data, §5)
+  actually resolve to real sibling targets — needed for join-correctness
+  workloads, not just single-view timing.
 - **Second-implementation agreement** as a stronger bless gate for `expectCount`
   (v1 uses analytic cross-check only, §11).
 - Multi-version benchmarking (v1 fixes `fhirVersion: "4.0.1"`, §5).

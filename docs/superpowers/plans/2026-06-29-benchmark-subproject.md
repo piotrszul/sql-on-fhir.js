@@ -15,7 +15,7 @@
 - **Language-neutral artifact (Constitution II):** `benchmark/*.json` and schemas are declarative. No shell/JS calls embedded in a recipe. Environment-specific facts (jar path, `java` binary) live ONLY in tool-side config, never in a benchmark file.
 - **Test-first (Constitution III):** every behavioural change gets a failing test first.
 - **FHIR version:** v1 fixes `fhirVersion: "4.0.1"` (what Synthea 3.2.0 emits).
-- **v1 view restriction (validated invariant):** views are single-root-resource flatten only — no `getReferenceKey`/`getResourceKey`/cross-resource reference resolution. Each case's `view.resource` ∈ its dataset's `resources`.
+- **Single-resource by measurement setup, not by syntax:** views may use any FHIRPath, **including `getResourceKey()` and `getReferenceKey()`**. The "single resource / no joins" property comes from the measurement setup (one ViewDefinition over one materialized resource type, timed as a reverse-ETL), not from restricting view syntax. The only validated view invariant is that each case's `view.resource` ∈ its dataset's `resources`. `bench:validate` does NOT restrict reference functions.
 - **On-disk layout contract:** `data/<name>_<hash>/<size>/<ResourceType>.ndjson` (one resource per line) + `data/<name>_<hash>/<size>/manifest.json`. `<hash>` = short content hash of the recipe.
 - **Demographic generation ceiling:** Synthea has no per-resource export filter → generate-then-prune. v1 caps demographic (Patient-rooted) dataset populations at 10,000; larger awaits `kind: download`.
 - **`data/` is untracked.** Bless `expectCount` only by reviewed change with an analytic cross-check; `expectCount` is implicitly keyed by the recipe's Synthea `version`.
@@ -237,10 +237,12 @@ test('case view.resource must be in dataset.resources', () => {
   expect(validateBenchmark(f)).toContain('case "c": view.resource "Patient" not in dataset.resources')
 })
 
-test('reference-resolving views are rejected in v1', () => {
+test('reference functions are allowed (single-resource is a measurement-setup property)', () => {
   const f = base()
-  f.cases[0].view.select = [{ column: [{ name: 'k', path: 'getReferenceKey(subject)' }] }]
-  expect(validateBenchmark(f).some((e) => e.includes('reference resolution'))).toBe(true)
+  f.cases[0].view.select = [
+    { column: [{ name: 'id', path: 'getResourceKey()' }, { name: 'subj', path: 'getReferenceKey(subject)' }] },
+  ]
+  expect(validateBenchmark(f)).toEqual([])
 })
 
 test('expectCount keys must be declared sizes', () => {
@@ -273,25 +275,6 @@ Expected: FAIL — `Cannot find module '../tools/validate-benchmarks.js'`.
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-const REFERENCE_FNS = ['getReferenceKey', 'getResourceKey']
-
-function pathsOf(view) {
-  // collect every string path/forEach/forEachOrNull/where in the ViewDefinition tree
-  const out = []
-  const walk = (node) => {
-    if (Array.isArray(node)) return node.forEach(walk)
-    if (node && typeof node === 'object') {
-      for (const [k, v] of Object.entries(node)) {
-        if (typeof v === 'string' && ['path', 'forEach', 'forEachOrNull'].includes(k)) out.push(v)
-        else if (k === 'where' && Array.isArray(v)) v.forEach((w) => w?.path && out.push(w.path))
-        else walk(v)
-      }
-    }
-  }
-  walk(view)
-  return out
-}
-
 export function validateBenchmark(file) {
   const errors = []
   const ds = file.dataset || {}
@@ -304,13 +287,8 @@ export function validateBenchmark(file) {
     const res = c.view?.resource
     if (res && !(ds.resources || []).includes(res))
       errors.push(`case "${c.title}": view.resource "${res}" not in dataset.resources`)
-
-    for (const p of pathsOf(c.view)) {
-      for (const fn of REFERENCE_FNS) {
-        if (p.includes(fn))
-          errors.push(`case "${c.title}": uses reference resolution "${fn}" (not allowed in v1)`)
-      }
-    }
+    // NOTE: reference functions (getResourceKey/getReferenceKey) are intentionally
+    // NOT restricted — single-resource is a measurement-setup property, not syntax.
 
     for (const sz of Object.keys(c.expectCount || {})) {
       if (!sizes.includes(sz)) errors.push(`case "${c.title}": expectCount size "${sz}" is not a declared size`)
@@ -1034,7 +1012,7 @@ git commit -m "feat(benchmark): add materialization CLI with file/group resoluti
 }
 ```
 
-> `getResourceKey()` returns the resource's own key (no cross-resource resolution), so it is allowed by the v1 invariant; `getReferenceKey` (cross-resource) is not used.
+> `getResourceKey()` (the resource's own key) is used here; reference functions including `getReferenceKey()` are also permitted — the validator does not restrict them, since single-resource is a measurement-setup property, not a syntactic rule.
 
 - [ ] **Step 2: Run validation to verify the file is well-formed and obeys invariants**
 
@@ -1446,10 +1424,12 @@ you timed in the report's `measurement` block.
 
 ## v1 scope
 
-Synthea-generated, single-resource flatten views, FHIR R4 (4.0.1). Demographic
-datasets are capped at 10k patients (generate-then-prune). Referenced datasets,
-QR/download kinds, reference-resolving views, and result checksums are future
-extensions. See `../docs/superpowers/specs/2026-06-29-benchmark-subproject-design.md`.
+Synthea-generated single-resource benchmarks (one view over one materialized
+resource type), FHIR R4 (4.0.1). Views may use any FHIRPath including reference
+functions; single-resource is a measurement-setup property. Demographic datasets
+are capped at 10k patients (generate-then-prune). Referenced datasets, QR/download
+kinds, referentially-consistent multi-resource datasets, and result checksums are
+future extensions. See `../docs/superpowers/specs/2026-06-29-benchmark-subproject-design.md`.
 ```
 
 - [ ] **Step 2: Commit**
@@ -1503,7 +1483,7 @@ git commit -m "chore(benchmark): wire bench:validate into the verification pipel
 
 **Spec coverage** (spec §→task):
 - §4 declarative recipe (kind/version/params, WHAT-vs-HOW) → schema Task 1 (`dataset` block), Task 6 (config out of artifact).
-- §5 inline file format (one dataset + N cases, multi-resource, group, fhirVersion, iterations, single-resource flatten invariant) → Tasks 1, 2, 8.
+- §5 inline file format (one dataset + N cases, multi-resource, group, fhirVersion, iterations, `view.resource` ∈ `dataset.resources` invariant; reference functions permitted) → Tasks 1, 2, 8.
 - §6 scaling (size as parameter, per-dataset population; 10k demographic ceiling) → Task 8 `sizes`; ceiling is enforced by authoring (no demographic dataset in v1) and documented (Task 12) — no code path needed.
 - §7 reference materializer (registry, generate-then-prune, idempotent, dedup, manifest) → Tasks 5, 6, 7.
 - §8 layout contract → Task 4 + Task 5.
