@@ -1,0 +1,57 @@
+{
+  "$id": "https://sql-on-fhir.org/ig/benchmark-report",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SQL on FHIR benchmark report schema",
+  "type": "object",
+  "required": ["implementation", "measurement", "results"],
+  "properties": {
+    "implementation": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": { "name": { "type": "string" }, "version": { "type": "string" } },
+      "additionalProperties": false
+    },
+    "benchmarkVersion": { "type": "string" },
+    "environment": { "type": "object" },
+    "measurement": {
+      "type": "object",
+      "required": ["phases", "sink", "warmup", "iterations"],
+      "properties": {
+        "phases": { "type": "array", "items": { "enum": ["load", "execute", "extract"] } },
+        "sink": { "enum": ["table", "csv", "memory", "other"] },
+        "warmup": { "type": "integer", "minimum": 0 },
+        "iterations": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "results": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["size", "cases"],
+        "properties": {
+          "size": { "type": "string" },
+          "fhirVersion": { "type": "string" },
+          "cases": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["title", "status"],
+              "properties": {
+                "title": { "type": "string" },
+                "status": { "enum": ["ok", "count_mismatch", "generation_error", "execution_error"] },
+                "inputRows": { "type": "integer" },
+                "outputRows": { "type": "integer" },
+                "samplesMs": { "type": "array", "items": { "type": "number" } },
+                "stats": { "type": "object" },
+                "phaseSamplesMs": { "type": "object" }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}

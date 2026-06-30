@@ -1,0 +1,6 @@
+{
+  "synthea": {
+    "java": "java",
+    "jar": "/absolute/path/to/synthea-with-dependencies-3.2.0.jar"
+  }
+}

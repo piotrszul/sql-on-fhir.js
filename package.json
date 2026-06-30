@@ -4,11 +4,16 @@
   "description": "Reference implementation, test suite and test report site for the SQL on FHIR v2.0 specification",
   "private": true,
   "scripts": {
-    "test": "cd sof-js && bun test",
-    "validate": "cd sof-js && bun run validate",
-    "check-fmt": "cd sof-js && bun run check-fmt",
+    "test": "cd sof-js && bun test && cd .. && bun run bench:test",
+    "validate": "cd sof-js && bun run validate && cd .. && bun run bench:validate",
+    "bench:check-fmt": "cd benchmark && bun run check-fmt",
+    "check-fmt": "cd sof-js && bun run check-fmt && cd .. && bun run bench:check-fmt",
     "fmt": "cd sof-js && bun run fmt",
-    "build:report": "cd test_report && bun run prepare && bun run build"
+    "build:report": "cd test_report && bun run prepare && bun run build",
+    "bench:test": "cd benchmark && bun test",
+    "bench:validate": "cd benchmark && bun run validate",
+    "bench:run": "cd sof-js && bun run src/benchmark-run.js",
+    "bench:data": "cd benchmark && bun run data"
   },
   "author": "John Grimes",
   "license": "Apache-2.0"

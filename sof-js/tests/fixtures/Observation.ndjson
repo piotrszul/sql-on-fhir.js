@@ -1,0 +1,2 @@
+{"resourceType":"Observation","id":"o1","component":[{"code":{"coding":[{"code":"8480-6"}]}},{"code":{"coding":[{"code":"8462-4"}]}}]}
+{"resourceType":"Observation","id":"o2","component":[{"code":{"coding":[{"code":"8480-6"}]}}]}
