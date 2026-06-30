@@ -5,8 +5,8 @@
   "main": "src/index.js",
   "type": "module",
   "scripts": {
-    "fmt": "prettier -w ../tests",
-    "check-fmt": "prettier -c ../tests",
+    "fmt": "prettier -w ../tests \"src/benchmark*.js\" \"tests/benchmark*.test.js\"",
+    "check-fmt": "prettier -c ../tests \"src/benchmark*.js\" \"tests/benchmark*.test.js\"",
     "validate": "ajv -s ../tests.schema.json -d \"../tests/*.json\"",
     "start": "node src/dev.js",
     "server": "node src/server.js",

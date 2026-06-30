@@ -24,3 +24,15 @@ test('an invalid status value fails the schema', () => {
   bad.results['clinical-flat'].cases[0].status = 'slow'
   expect(validate(bad)).toBe(false)
 })
+
+test('an unknown key in the implementation object fails the schema', () => {
+  const bad = structuredClone(goodReport)
+  bad.implementation.vendor = 'acme'
+  expect(validate(bad)).toBe(false)
+})
+
+test('an unknown key in a per-result object fails the schema', () => {
+  const bad = structuredClone(goodReport)
+  bad.results['clinical-flat'].notes = 'extra'
+  expect(validate(bad)).toBe(false)
+})

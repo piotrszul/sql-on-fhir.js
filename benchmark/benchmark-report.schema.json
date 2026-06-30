@@ -8,7 +8,8 @@
     "implementation": {
       "type": "object",
       "required": ["name", "version"],
-      "properties": { "name": { "type": "string" }, "version": { "type": "string" } }
+      "properties": { "name": { "type": "string" }, "version": { "type": "string" } },
+      "additionalProperties": false
     },
     "benchmarkVersion": { "type": "string" },
     "environment": { "type": "object" },
@@ -48,7 +49,8 @@
               "additionalProperties": false
             }
           }
-        }
+        },
+        "additionalProperties": false
       }
     }
   }
