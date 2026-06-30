@@ -45,12 +45,12 @@
               {
                 "name": "code",
                 "path": "code.coding.first().code",
-                "type": "string"
+                "type": "code"
               },
               {
                 "name": "clinical_status",
                 "path": "clinicalStatus.coding.first().code",
-                "type": "string"
+                "type": "code"
               }
             ]
           }
@@ -82,7 +82,7 @@
               {
                 "name": "comp_code",
                 "path": "code.coding.first().code",
-                "type": "string"
+                "type": "code"
               }
             ]
           }

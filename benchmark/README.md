@@ -44,7 +44,13 @@ you timed in the report's `measurement` block.
 
 Synthea-generated single-resource benchmarks (one view over one materialized
 resource type), FHIR R4 (4.0.1). Views may use any FHIRPath including reference
-functions; single-resource is a measurement-setup property. Demographic datasets
+functions; single-resource is a measurement-setup property. Case views should
+conform to the
+[ShareableViewDefinition](https://build.fhir.org/ig/HL7/sql-on-fhir/StructureDefinition-ShareableViewDefinition.html)
+profile — every column carries a `type`, and that `type` must match the FHIR type
+the path returns — so cases run unchanged on strongly-typed engines. The `sof-js`
+reference runner ignores `column.type`, so this is not enforced here; a
+second-runner mismatch (e.g. Pathling) is the signal. Demographic datasets
 are capped at 10k patients (generate-then-prune). Referenced datasets, QR/download
 kinds, referentially-consistent multi-resource datasets, and result checksums are
 future extensions. See `../docs/superpowers/specs/2026-06-29-benchmark-subproject-design.md`.

@@ -51,7 +51,11 @@
         "properties": {
           "title": { "type": "string" },
           "description": { "type": "string" },
-          "view": { "type": "object", "required": ["resource"] },
+          "view": {
+            "type": "object",
+            "required": ["resource"],
+            "description": "A ViewDefinition. Should conform to the ShareableViewDefinition profile so the case runs on strongly-typed engines: every column carries a `type`, and that `type` must match the FHIR type the column's path returns (e.g. a path ending in `.code` is `code`, not `string`)."
+          },
           "expectCount": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } }
         },
         "additionalProperties": false
