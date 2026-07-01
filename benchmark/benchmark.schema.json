@@ -4,8 +4,16 @@
   "title": "SQL on FHIR benchmark schema",
   "description": "Inline benchmark file (authored intent only): a dataset recipe paired with ViewDefinition cases. Generated facts (expected row counts, dataset checksums) live in the sibling checkfile, not here.",
   "type": "object",
-  "required": ["title", "fhirVersion", "dataset", "cases"],
+  "required": ["name", "version", "title", "fhirVersion", "dataset", "cases"],
   "properties": {
+    "name": {
+      "type": "string",
+      "description": "Stable machine id of the suite (distinct from group and from the free-text title). report.benchmark.name and the report's results map key SHALL source directly from this authored value."
+    },
+    "version": {
+      "type": "string",
+      "description": "Authored suite revision, human-maintained and bumped deliberately when the suite changes — mirroring dataset.version. report.benchmark.version SHALL source directly from this, not from a pinned tag."
+    },
     "title": { "type": "string" },
     "description": { "type": "string" },
     "group": { "type": "string", "description": "Flat label coordinating multi-file benchmarks." },

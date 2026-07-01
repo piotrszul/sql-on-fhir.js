@@ -6,6 +6,8 @@ const ajv = new Ajv({ strict: false })
 const validate = ajv.compile(schema)
 
 const goodFile = {
+  name: 'clinical-flat',
+  version: '1',
   title: 'clinical-flat',
   fhirVersion: '4.0.1',
   dataset: {
@@ -48,4 +50,21 @@ test('a case without a stable id is rejected', () => {
 
 test('a file with an explicit dataset version, ids, and no expectCount is accepted', () => {
   expect(validate(goodFile)).toBe(true)
+})
+
+test('a benchmark file omitting the suite name is rejected', () => {
+  const bad = structuredClone(goodFile)
+  delete bad.name
+  expect(validate(bad)).toBe(false)
+})
+
+test('a benchmark file omitting the suite version is rejected', () => {
+  const bad = structuredClone(goodFile)
+  delete bad.version
+  expect(validate(bad)).toBe(false)
+})
+
+test('a file declaring a stable suite name and version alongside title/group is accepted', () => {
+  const f = { ...structuredClone(goodFile), group: 'synthea-clinical' }
+  expect(validate(f)).toBe(true)
 })

@@ -2,6 +2,8 @@ import { test, expect } from 'bun:test'
 import { validateBenchmark, validateGroup, validateSchema } from '../tools/validate-benchmarks.js'
 
 const base = () => ({
+  name: 'b',
+  version: '1',
   title: 't',
   fhirVersion: '4.0.1',
   dataset: {
@@ -25,6 +27,18 @@ const base = () => ({
 
 test('a valid file yields no errors', () => {
   expect(validateBenchmark(base())).toEqual([])
+})
+
+test('a file omitting the suite name is flagged by the invariant validator', () => {
+  const f = base()
+  delete f.name
+  expect(validateBenchmark(f).some((e) => e.includes('name'))).toBe(true)
+})
+
+test('a file omitting the suite version is flagged by the invariant validator', () => {
+  const f = base()
+  delete f.version
+  expect(validateBenchmark(f).some((e) => e.includes('version'))).toBe(true)
 })
 
 test('a case carrying inline expectCount is flagged (generated facts belong in the checkfile)', () => {

@@ -13,6 +13,15 @@ export function validateSchema(file) {
 
 export function validateBenchmark(file) {
   const errors = []
+
+  // The authored suite identity (stable machine `name` + authored `version`) is
+  // the authoritative source for report.benchmark.{name,version} and the report's
+  // results map key; a file that omits either forces a runner to invent identity
+  // from outside the contract. Guarded on `== null` so an explicit falsy-but-valid
+  // value would still pass (strings here, but consistent with the param idiom).
+  if (file.name == null) errors.push('benchmark file must declare a suite name (stable machine id)')
+  if (file.version == null) errors.push('benchmark file must declare a suite version (authored revision)')
+
   const ds = file.dataset || {}
   const sizes = Object.keys(ds.sizes || {})
 
