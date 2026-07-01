@@ -67,7 +67,14 @@ function observeResourceCounts({ benchmark, size, dataRoot }) {
   return counts
 }
 
-export function buildReport({ benchmark, size, dataRoot, checkfilePath, impl, scenario = 'preloaded_repeated' }) {
+export function buildReport({
+  benchmark,
+  size,
+  dataRoot,
+  checkfilePath,
+  impl,
+  scenario = 'preloaded_repeated',
+}) {
   const { warmup, measurement } = benchmark.iterations || { warmup: 1, measurement: 5 }
   const checkfile = checkfilePath ? readCheckfile(checkfilePath) : null
   const cases = runCases({ benchmark, size, dataRoot }).map(({ c, inputRows, outputRows, samplesMs }) => {
@@ -119,7 +126,10 @@ export function blessCheckfile({ benchmark, size, dataRoot, checkfilePath }) {
     assertions[c.id] = { [size]: outputRows }
   }
   const previous = readCheckfile(checkfilePath)
-  const dataset = { ...benchmark.dataset, syntheaVersion: benchmark.dataset.syntheaVersion ?? benchmark.dataset.version }
+  const dataset = {
+    ...benchmark.dataset,
+    syntheaVersion: benchmark.dataset.syntheaVersion ?? benchmark.dataset.version,
+  }
   const checkfile = buildCheckfile({ dataRoot, dataset, sizes: [size], assertions, previous })
   writeCheckfile(checkfilePath, checkfile)
   return checkfile

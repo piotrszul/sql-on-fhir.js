@@ -29,7 +29,12 @@ function seedDataRoot() {
   return dataRoot
 }
 
-const dataset = { name: 'synthea-clinical', version: '1', syntheaVersion: '3.2.0', resources: ['Condition', 'Observation'] }
+const dataset = {
+  name: 'synthea-clinical',
+  version: '1',
+  syntheaVersion: '3.2.0',
+  resources: ['Condition', 'Observation'],
+}
 
 // ---- WRITER ----
 

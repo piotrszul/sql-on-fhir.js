@@ -60,7 +60,11 @@ function seedData() {
         id: 'o1',
         component: [{ code: { coding: [{ code: 'a' }] } }, { code: { coding: [{ code: 'b' }] } }],
       }),
-      JSON.stringify({ resourceType: 'Observation', id: 'o2', component: [{ code: { coding: [{ code: 'c' }] } }] }),
+      JSON.stringify({
+        resourceType: 'Observation',
+        id: 'o2',
+        component: [{ code: { coding: [{ code: 'c' }] } }],
+      }),
     ].join('\n') + '\n',
   )
   return dataRoot
@@ -110,7 +114,12 @@ test('runner reads expected counts from the checkfile (matching => ok)', () => {
 
 test('runner flags count_mismatch against a present checkfile assertion', () => {
   const dataRoot = seedData()
-  const cf = { dataset: { name: 'synthea-clinical', version: '1' }, syntheaVersion: '3.2.0', sizes: {}, assertions: { obs: { s: 99 } } }
+  const cf = {
+    dataset: { name: 'synthea-clinical', version: '1' },
+    syntheaVersion: '3.2.0',
+    sizes: {},
+    assertions: { obs: { s: 99 } },
+  }
   writeFileSync(checkfilePath(dataRoot), JSON.stringify(cf))
   const report = buildReport({
     benchmark,
@@ -127,7 +136,12 @@ test('a countVariancePermitted case is NOT auto-flagged count_mismatch on diverg
   const dataRoot = seedData()
   const b = structuredClone(benchmark)
   b.cases[0].countVariancePermitted = true
-  const cf = { dataset: { name: 'synthea-clinical', version: '1' }, syntheaVersion: '3.2.0', sizes: {}, assertions: { obs: { s: 99 } } }
+  const cf = {
+    dataset: { name: 'synthea-clinical', version: '1' },
+    syntheaVersion: '3.2.0',
+    sizes: {},
+    assertions: { obs: { s: 99 } },
+  }
   writeFileSync(checkfilePath(dataRoot), JSON.stringify(cf))
   const report = buildReport({
     benchmark: b,

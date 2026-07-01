@@ -142,8 +142,8 @@ precedes its green step.
 
 ## 10. Verify green before merge (Constitution V)
 
-- [ ] 10.1 `bun test` — all pass
-- [ ] 10.2 `bun run validate` — all `tests/*.json` valid against
+- [x] 10.1 `bun test` — all pass
+- [x] 10.2 `bun run validate` — all `tests/*.json` valid against
   `tests.schema.json` (unaffected, must stay green)
-- [ ] 10.3 `bun run check-fmt` — clean
-- [ ] 10.4 `openspec validate benchmark-contract-v2 --strict` — valid
+- [x] 10.3 `bun run check-fmt` — clean
+- [x] 10.4 `openspec validate benchmark-contract-v2 --strict` — valid
