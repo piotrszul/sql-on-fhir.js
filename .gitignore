@@ -2,6 +2,10 @@
 Thumbs.db
 node_modules
 
+# Synthea run leftovers (written to the working dir during materialization / re-bless)
+/db.sqlite
+/public/
+
 # sof-js
 sof-js/bun.lockb
 sof-js/db.sqlite
