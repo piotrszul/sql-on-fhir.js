@@ -16,7 +16,11 @@
       "seed": 589,
       "clinicianSeed": 1652609873669,
       "referenceTime": 20240101,
-      "yearsOfHistory": 1
+      "endTime": 20250101,
+      "yearsOfHistory": 1,
+      "hospitalExport": false,
+      "practitionerExport": false,
+      "bulkData": true
     },
     "sizes": {
       "s": {
@@ -57,8 +61,8 @@
         ]
       },
       "expectCount": {
-        "s": 6219,
-        "m": 50090
+        "s": 6406,
+        "m": 48483
       }
     },
     {
@@ -89,8 +93,8 @@
         ]
       },
       "expectCount": {
-        "s": 4794,
-        "m": 40983
+        "s": 4366,
+        "m": 39336
       }
     }
   ]
