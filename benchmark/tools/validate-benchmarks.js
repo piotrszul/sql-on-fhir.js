@@ -25,6 +25,10 @@ export function validateBenchmark(file) {
   // false / wall-clock), yielding the wrong dataset with no error. The booleans are
   // guarded on `== null` (not falsy) so an explicit `false` is a valid declared value.
   if (ds.kind === 'synthea') {
+    // The generator version is echoed into the checkfile's syntheaVersion for the
+    // lock, and is distinct from the identity `version`.
+    if (ds.syntheaVersion == null)
+      errors.push('synthea dataset must declare syntheaVersion (echoed into the checkfile lock)')
     const requiredParams = {
       endTime: 'pinned simulation end date',
       yearsOfHistory: 'exported years of history',
@@ -42,10 +46,13 @@ export function validateBenchmark(file) {
     if (res && !(ds.resources || []).includes(res))
       errors.push(`case "${c.title}": view.resource "${res}" not in dataset.resources`)
 
-    for (const sz of Object.keys(c.expectCount || {})) {
-      if (!sizes.includes(sz))
-        errors.push(`case "${c.title}": expectCount size "${sz}" is not a declared size`)
-    }
+    // Expected output row counts are GENERATED facts and live in the checkfile
+    // (benchmark-checkfile-format), never inline in the authored benchmark file.
+    // A stray inline expectCount is a contract violation, not authored intent.
+    if (c.expectCount != null)
+      errors.push(
+        `case "${c.title}": inline expectCount is not allowed — expected row counts are generated facts that live in the checkfile`,
+      )
   }
   return errors
 }

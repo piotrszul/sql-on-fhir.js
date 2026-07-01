@@ -11,12 +11,12 @@ const goodFile = {
   dataset: {
     name: 'synthea-clinical',
     kind: 'synthea',
-    version: '3.2.0',
+    version: '1',
     resources: ['Condition'],
     sizes: { s: { population: 100 } },
     defaultSize: 's',
   },
-  cases: [{ title: 'condition flat', view: { resource: 'Condition' } }],
+  cases: [{ id: 'condition-flat', title: 'condition flat', view: { resource: 'Condition' } }],
 }
 
 test('a well-formed benchmark file passes the schema', () => {
@@ -32,4 +32,20 @@ test('a benchmark file missing fhirVersion fails the schema', () => {
 test('an unknown top-level property fails the schema', () => {
   const bad = { ...goodFile, bogus: 1 }
   expect(validate(bad)).toBe(false)
+})
+
+test('a case carrying inline expectCount is rejected', () => {
+  const bad = structuredClone(goodFile)
+  bad.cases[0].expectCount = { s: 10 }
+  expect(validate(bad)).toBe(false)
+})
+
+test('a case without a stable id is rejected', () => {
+  const bad = structuredClone(goodFile)
+  delete bad.cases[0].id
+  expect(validate(bad)).toBe(false)
+})
+
+test('a file with an explicit dataset version, ids, and no expectCount is accepted', () => {
+  expect(validate(goodFile)).toBe(true)
 })

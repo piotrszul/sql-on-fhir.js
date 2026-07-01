@@ -1,18 +1,24 @@
 import { test, expect } from 'bun:test'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { buildReport, bless } from '../src/benchmark-run.js'
-import { datasetDir } from '../../benchmark/tools/layout.js'
+import Ajv from 'ajv'
+import reportSchema from '../../benchmark/benchmark-report.schema.json'
+import { buildReport, blessCheckfile, deriveExpectedCount } from '../src/benchmark-run.js'
+import { datasetDir, checkfileFor } from '../../benchmark/tools/layout.js'
+import { readCheckfile, assertionFor } from '../../benchmark/tools/checkfile.js'
+
+const validateReport = new Ajv({ strict: false }).compile(reportSchema)
 
 const benchmark = {
   title: 'clinical-flat',
   fhirVersion: '4.0.1',
   iterations: { warmup: 0, measurement: 2 },
   dataset: {
-    name: 'd',
+    name: 'synthea-clinical',
     kind: 'synthea',
-    version: '3.2.0',
+    version: '1',
+    syntheaVersion: '3.2.0',
     resources: ['Observation'],
     sizes: { s: { population: 100 } },
     defaultSize: 's',
@@ -20,56 +26,211 @@ const benchmark = {
   },
   cases: [
     {
+      id: 'obs',
       title: 'obs',
       view: {
         resource: 'Observation',
         select: [{ column: [{ name: 'id', path: 'getResourceKey()', type: 'string' }] }],
       },
-      expectCount: { s: 2 },
+    },
+    {
+      id: 'obs-components',
+      title: 'observation components',
+      view: {
+        resource: 'Observation',
+        select: [
+          { column: [{ name: 'id', path: 'getResourceKey()', type: 'string' }] },
+          { forEach: 'component', column: [{ name: 'c', path: 'code.coding.first().code', type: 'code' }] },
+        ],
+      },
     },
   ],
 }
 
+// two Observations; o1 has 2 components, o2 has 1 => 3 component-rows total
 function seedData() {
   const dataRoot = mkdtempSync(join(tmpdir(), 'run-'))
-  const recipe = { kind: 'synthea', version: '3.2.0', resources: ['Observation'], params: { seed: 589 } }
-  const dir = datasetDir(dataRoot, 'd', recipe, 's')
+  const dir = datasetDir(dataRoot, 'synthea-clinical', '1', 's')
   mkdirSync(dir, { recursive: true })
   writeFileSync(
     join(dir, 'Observation.ndjson'),
-    '{"resourceType":"Observation","id":"o1"}\n{"resourceType":"Observation","id":"o2"}\n',
+    [
+      JSON.stringify({
+        resourceType: 'Observation',
+        id: 'o1',
+        component: [{ code: { coding: [{ code: 'a' }] } }, { code: { coding: [{ code: 'b' }] } }],
+      }),
+      JSON.stringify({
+        resourceType: 'Observation',
+        id: 'o2',
+        component: [{ code: { coding: [{ code: 'c' }] } }],
+      }),
+    ].join('\n') + '\n',
   )
   return dataRoot
 }
 
-test('buildReport marks a matching count as ok', () => {
-  const dataRoot = seedData()
-  const report = buildReport({ benchmark, size: 's', dataRoot, impl: { name: 'sof-js', version: '2.0.0' } })
-  expect(report.results['clinical-flat'].cases[0].status).toBe('ok')
-  expect(report.results['clinical-flat'].cases[0].outputRows).toBe(2)
-  expect(report.measurement.iterations).toBe(2)
-  rmSync(dataRoot, { recursive: true, force: true })
-})
+function checkfilePath(dataRoot) {
+  return join(dataRoot, 'clinical-flat.check.json')
+}
 
-test('buildReport flags a count mismatch', () => {
+// ---- §6/§7: data resolution by identity + checkfile-driven guard ----
+
+test('runner resolves data/<name>/<version>/<size>/ from identity, no hash', () => {
   const dataRoot = seedData()
-  const b2 = structuredClone(benchmark)
-  b2.cases[0].expectCount.s = 99
+  // the file lives at synthea-clinical/1/s — the plain identity path
+  expect(existsSync(join(dataRoot, 'synthea-clinical', '1', 's', 'Observation.ndjson'))).toBe(true)
   const report = buildReport({
-    benchmark: b2,
+    benchmark,
     size: 's',
     dataRoot,
-    impl: { name: 'sof-js', version: '2.0.0' },
+    impl: { engine: { name: 'sof-js', version: '2.0.0' } },
   })
-  expect(report.results['clinical-flat'].cases[0].status).toBe('count_mismatch')
+  expect(report.results['clinical-flat'].cases[0].outputRows).toBe(2)
   rmSync(dataRoot, { recursive: true, force: true })
 })
 
-test('bless fills expectCount from observed rows', () => {
+test('runner reads expected counts from the checkfile (matching => ok)', () => {
   const dataRoot = seedData()
-  const b3 = structuredClone(benchmark)
-  delete b3.cases[0].expectCount
-  const blessed = bless({ benchmark: b3, size: 's', dataRoot })
-  expect(blessed.cases[0].expectCount.s).toBe(2)
+  const cf = {
+    dataset: { name: 'synthea-clinical', version: '1' },
+    syntheaVersion: '3.2.0',
+    sizes: {},
+    assertions: { obs: { s: 2 }, 'obs-components': { s: 3 } },
+  }
+  writeFileSync(checkfilePath(dataRoot), JSON.stringify(cf))
+  const report = buildReport({
+    benchmark,
+    size: 's',
+    dataRoot,
+    checkfilePath: checkfilePath(dataRoot),
+    impl: { engine: { name: 'sof-js', version: '2.0.0' } },
+  })
+  const cases = report.results['clinical-flat'].cases
+  expect(cases.find((c) => c.id === 'obs').status).toBe('ok')
+  expect(cases.find((c) => c.id === 'obs-components').status).toBe('ok')
   rmSync(dataRoot, { recursive: true, force: true })
+})
+
+test('runner flags count_mismatch against a present checkfile assertion', () => {
+  const dataRoot = seedData()
+  const cf = {
+    dataset: { name: 'synthea-clinical', version: '1' },
+    syntheaVersion: '3.2.0',
+    sizes: {},
+    assertions: { obs: { s: 99 } },
+  }
+  writeFileSync(checkfilePath(dataRoot), JSON.stringify(cf))
+  const report = buildReport({
+    benchmark,
+    size: 's',
+    dataRoot,
+    checkfilePath: checkfilePath(dataRoot),
+    impl: { engine: { name: 'sof-js', version: '2.0.0' } },
+  })
+  expect(report.results['clinical-flat'].cases.find((c) => c.id === 'obs').status).toBe('count_mismatch')
+  rmSync(dataRoot, { recursive: true, force: true })
+})
+
+test('a countVariancePermitted case is NOT auto-flagged count_mismatch on divergence', () => {
+  const dataRoot = seedData()
+  const b = structuredClone(benchmark)
+  b.cases[0].countVariancePermitted = true
+  const cf = {
+    dataset: { name: 'synthea-clinical', version: '1' },
+    syntheaVersion: '3.2.0',
+    sizes: {},
+    assertions: { obs: { s: 99 } },
+  }
+  writeFileSync(checkfilePath(dataRoot), JSON.stringify(cf))
+  const report = buildReport({
+    benchmark: b,
+    size: 's',
+    dataRoot,
+    checkfilePath: checkfilePath(dataRoot),
+    impl: { engine: { name: 'sof-js', version: '2.0.0' } },
+  })
+  expect(report.results['clinical-flat'].cases.find((c) => c.id === 'obs').status).toBe('ok')
+  rmSync(dataRoot, { recursive: true, force: true })
+})
+
+test('absent assertion => ok', () => {
+  const dataRoot = seedData()
+  const report = buildReport({
+    benchmark,
+    size: 's',
+    dataRoot,
+    impl: { engine: { name: 'sof-js', version: '2.0.0' } },
+  })
+  expect(report.results['clinical-flat'].cases[0].status).toBe('ok')
+  rmSync(dataRoot, { recursive: true, force: true })
+})
+
+// ---- §7: report shape (implementation, scenario, stats, provenance, inputRows, id) ----
+
+test('buildReport emits a schema-valid report with structured implementation, scenario, stats and provenance', () => {
+  const dataRoot = seedData()
+  const report = buildReport({
+    benchmark,
+    size: 's',
+    dataRoot,
+    impl: { engine: { name: 'sof-js', version: '2.0.0' } },
+  })
+  expect(validateReport(report)).toBe(true)
+  expect(report.implementation.engine).toEqual({ name: 'sof-js', version: '2.0.0' })
+  expect(report.benchmark).toEqual({ name: 'clinical-flat', version: '1' })
+  expect(report.dataset).toEqual({ name: 'synthea-clinical', version: '1' })
+  expect(['end_to_end', 'preloaded_repeated']).toContain(report.measurement.scenario)
+  const res = report.results['clinical-flat']
+  expect(res.resourceCounts.Observation).toBe(2)
+  const c0 = res.cases[0]
+  expect(c0.id).toBe('obs')
+  expect(c0.inputRows).toBe(2) // number of Observation resources loaded
+  expect(c0.stats).toHaveProperty('mean')
+  expect(c0.stats).toHaveProperty('p50')
+  expect(c0.stats).toHaveProperty('p95')
+  expect(c0.stats).toHaveProperty('stddev')
+  rmSync(dataRoot, { recursive: true, force: true })
+})
+
+// ---- §5.1: analytic derivation ----
+
+test('deriveExpectedCount: plain projection => input resource count', () => {
+  const dataRoot = seedData()
+  const resources = readFileSync(join(dataRoot, 'synthea-clinical', '1', 's', 'Observation.ndjson'), 'utf8')
+    .trim()
+    .split('\n')
+    .map((l) => JSON.parse(l))
+  expect(deriveExpectedCount(benchmark.cases[0].view, resources)).toBe(2)
+  rmSync(dataRoot, { recursive: true, force: true })
+})
+
+test('deriveExpectedCount: forEach over a collection => total collection-entry count', () => {
+  const dataRoot = seedData()
+  const resources = readFileSync(join(dataRoot, 'synthea-clinical', '1', 's', 'Observation.ndjson'), 'utf8')
+    .trim()
+    .split('\n')
+    .map((l) => JSON.parse(l))
+  expect(deriveExpectedCount(benchmark.cases[1].view, resources)).toBe(3)
+  rmSync(dataRoot, { recursive: true, force: true })
+})
+
+// ---- §5/§6: bless writes the checkfile, cross-checked, other sizes preserved ----
+
+test('blessCheckfile writes the checkfile with counts, checksums and assertions; not the benchmark file', () => {
+  const dataRoot = seedData()
+  const cfPath = checkfilePath(dataRoot)
+  blessCheckfile({ benchmark, size: 's', dataRoot, checkfilePath: cfPath })
+  const cf = readCheckfile(cfPath)
+  expect(cf.dataset).toEqual({ name: 'synthea-clinical', version: '1' })
+  expect(cf.syntheaVersion).toBe('3.2.0')
+  expect(cf.sizes.s.resourceCounts.Observation).toBe(2)
+  expect(cf.sizes.s.files['Observation.ndjson'].sha256).toMatch(/^[0-9a-f]{64}$/)
+  expect(assertionFor(cf, 'obs', 's')).toBe(2)
+  expect(assertionFor(cf, 'obs-components', 's')).toBe(3) // forEach entry count
+  rmSync(dataRoot, { recursive: true, force: true })
+})
+
+test('checkfileFor derives the checkfile path from the benchmark file path', () => {
+  expect(checkfileFor('/bench/clinical-flat.json')).toBe('/bench/clinical-flat.check.json')
 })

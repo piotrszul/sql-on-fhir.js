@@ -1,19 +1,28 @@
-import { mkdtempSync, mkdirSync, existsSync, readFileSync, writeFileSync, renameSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, existsSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { datasetDir, manifestFile, recipeOf } from './layout.js'
 
-function countLines(path) {
-  const txt = readFileSync(path, 'utf8')
-  if (txt.length === 0) return 0
-  return txt.endsWith('\n') ? txt.split('\n').length - 1 : txt.split('\n').length
+// Synthea's bulk export emits the same resources in a non-deterministic LINE ORDER
+// across runs (--generate.thread_count=1 pins generation, not export iteration order),
+// so the raw NDJSON is only SORTED-identical, not byte-identical. Canonicalise by
+// sorting lines lexicographically (ordinal, locale-independent) so the persisted
+// bytes — and their sha256 — are stable across environments, which is what the
+// checkfile locks. localeCompare is intentionally avoided: it is locale-dependent
+// and would defeat cross-environment reproducibility.
+function canonicaliseNdjson(src, dst) {
+  const txt = readFileSync(src, 'utf8')
+  const lines = txt.split('\n').filter((l) => l.length > 0)
+  lines.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+  writeFileSync(dst, lines.length ? lines.join('\n') + '\n' : '')
+  return lines.length
 }
 
 export async function materialize({ dataset, size, dataRoot, executor, force = false }) {
   const recipe = recipeOf(dataset)
   const population = dataset.sizes[size].population
-  const dir = datasetDir(dataRoot, dataset.name, recipe, size)
-  const manifestPath = manifestFile(dataRoot, dataset.name, recipe, size)
+  const dir = datasetDir(dataRoot, dataset.name, dataset.version, size)
+  const manifestPath = manifestFile(dataRoot, dataset.name, dataset.version, size)
 
   if (!force && existsSync(manifestPath)) {
     const existing = JSON.parse(readFileSync(manifestPath, 'utf8'))
@@ -31,9 +40,10 @@ export async function materialize({ dataset, size, dataRoot, executor, force = f
       const src = join(staging, `${r}.ndjson`)
       if (!existsSync(src)) throw new Error(`executor did not produce ${r}.ndjson`)
       const dst = join(dir, `${r}.ndjson`)
-      renameSync(src, dst)
-      counts[r] = countLines(dst)
+      counts[r] = canonicaliseNdjson(src, dst)
     }
+    // Per-file sha256 lives in the checkfile (the authoritative lock); the manifest
+    // records only identity, population, per-file row counts, and a timestamp.
     const manifest = {
       name: dataset.name,
       kind: dataset.kind,

@@ -1,25 +1,4 @@
-# benchmark-reference-runner Specification
-
-## Purpose
-
-Defines the reference benchmark-runner provided by `sof-js`: how it times a
-single-view reverse-ETL over materialized data, guards output row counts against
-blessed expectations, supports a bless (`--record`) mode, and stays in agreement
-with the materializer on recipe identity. It also fixes the language-neutral
-contract any implementation must satisfy to act as a runner.
-## Requirements
-### Requirement: Reference runner times a single-view reverse-ETL
-
-`sof-js` SHALL provide a reference benchmark-runner that loads a case's
-materialized NDJSON, evaluates its `view` over the loaded resources, and times the
-evaluation over the configured warmup and measurement iterations, returning one
-sample per measured iteration plus the output row count. The timed region SHALL
-wrap only the evaluation; warmup iterations SHALL be discarded.
-
-#### Scenario: Warmup discarded, one sample per measurement
-
-- **WHEN** the runner times a view with `warmup: 1` and `measurement: 3`
-- **THEN** it returns exactly three samples and the output row count of the result
+## MODIFIED Requirements
 
 ### Requirement: Row-count correctness guard
 
@@ -107,6 +86,18 @@ checksums) from the checkfile, not from any inline `expectCount`.
   reads its expected counts from the checkfile, needing no JS-specific
   canonicaliser
 
+## REMOVED Requirements
+
+### Requirement: Recipe-identity agreement with the materializer
+
+**Reason**: The runner no longer derives a recipe content hash to locate data.
+Dataset identity is now the explicit `name` + `version` pair (see
+`benchmark-dataset-materialization`), so there is no shared canonicaliser to agree
+on and the finding-F1/F6 hash-derivation bugs disappear. Replaced by the new
+"Runner locates data by explicit identity" requirement below.
+
+## ADDED Requirements
+
 ### Requirement: Runner locates data by explicit identity
 
 The runner SHALL locate a case's materialized NDJSON at
@@ -129,4 +120,3 @@ to detect data that has drifted from the locked bytes.
 - **WHEN** the runner is run in its optional strict mode
 - **THEN** it recomputes each materialized file's sha256 and compares it to the
   checkfile, surfacing any drift from the locked bytes
-

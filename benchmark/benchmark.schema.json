@@ -2,7 +2,7 @@
   "$id": "https://sql-on-fhir.org/ig/benchmark",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "SQL on FHIR benchmark schema",
-  "description": "Inline benchmark file: a dataset recipe paired with ViewDefinition cases and per-size expected row counts.",
+  "description": "Inline benchmark file (authored intent only): a dataset recipe paired with ViewDefinition cases. Generated facts (expected row counts, dataset checksums) live in the sibling checkfile, not here.",
   "type": "object",
   "required": ["title", "fhirVersion", "dataset", "cases"],
   "properties": {
@@ -23,9 +23,19 @@
       "type": "object",
       "required": ["name", "kind", "version", "resources", "sizes", "defaultSize"],
       "properties": {
-        "name": { "type": "string", "description": "Human-readable; part of the on-disk dir key." },
+        "name": {
+          "type": "string",
+          "description": "Explicit dataset identity; the first on-disk dir segment."
+        },
         "kind": { "type": "string", "enum": ["synthea"] },
-        "version": { "type": "string", "description": "Pinned generator version." },
+        "version": {
+          "type": "string",
+          "description": "Explicit, human-maintained dataset identity tag expressing INTENT to change the data; the second on-disk dir segment. Bumped deliberately when the recipe should re-generate. NOT a derived content hash."
+        },
+        "syntheaVersion": {
+          "type": "string",
+          "description": "The generator version pinned for this recipe, echoed into the checkfile's syntheaVersion for the lock. Distinct from the identity `version`."
+        },
         "resources": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
         "params": { "type": "object" },
         "sizes": {
@@ -47,16 +57,23 @@
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["title", "view"],
+        "required": ["id", "title", "view"],
         "properties": {
-          "title": { "type": "string" },
+          "id": {
+            "type": "string",
+            "description": "Stable key (short, unique within the file, stable across edits). The checkfile's assertions and the report's per-case results reference this id, not the free-text title."
+          },
+          "title": { "type": "string", "description": "Free-text human label; may change freely." },
           "description": { "type": "string" },
+          "countVariancePermitted": {
+            "type": "boolean",
+            "description": "When true, this case's reference is resolved in `where`/`forEach` position where empty-vs-null-vs-error is engine-specific; the runner MUST NOT auto-flag a cross-engine count divergence as count_mismatch. The row-count-invariance claim holds only for projection-position references."
+          },
           "view": {
             "type": "object",
             "required": ["resource"],
             "description": "A ViewDefinition. Should conform to the ShareableViewDefinition profile so the case runs on strongly-typed engines: every column carries a `type`, and that `type` must match the FHIR type the column's path returns (e.g. a path ending in `.code` is `code`, not `string`)."
-          },
-          "expectCount": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } }
+          }
         },
         "additionalProperties": false
       }

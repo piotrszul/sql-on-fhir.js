@@ -26,6 +26,12 @@ test('timeEvaluate returns one sample per measurement iteration and the output r
   expect(outputRows).toBe(3) // 2 components on o1 + 1 on o2
 })
 
-test('statsOf computes min and mean', () => {
-  expect(statsOf([2, 4, 6])).toEqual({ min: 2, mean: 4 })
+test('statsOf computes the defined basic-statistics shape', () => {
+  const s = statsOf([2, 4, 6])
+  expect(s.min).toBe(2)
+  expect(s.max).toBe(6)
+  expect(s.mean).toBe(4)
+  expect(s).toHaveProperty('stddev')
+  expect(s).toHaveProperty('p50')
+  expect(s).toHaveProperty('p95')
 })

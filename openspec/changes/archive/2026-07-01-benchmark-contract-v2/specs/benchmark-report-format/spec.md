@@ -1,13 +1,10 @@
-# benchmark-report-format Specification
+## RENAMED Requirements
 
-## Purpose
+- FROM: `### Requirement: Size is a result dimension`
+- TO: `### Requirement: Size is a result dimension and reports are traceable`
 
-Defines the benchmark result report format — a public contract
-(`benchmark-report.schema.json`) that any implementation emits after running the
-suite. The format captures the implementation under test, a reverse-ETL
-measurement descriptor, and size-keyed results so that runtime can be analysed as
-a scaling curve.
-## Requirements
+## MODIFIED Requirements
+
 ### Requirement: Report structure and status taxonomy
 
 A benchmark result report SHALL conform to the `benchmark-report.schema.json`
@@ -129,6 +126,8 @@ recordable.
 - **THEN** it records the dataset resource counts observed at `m`, mirroring the
   checkfile's `resourceCounts`
 
+## ADDED Requirements
+
 ### Requirement: Defined statistics and inputRows
 
 A case's `stats` SHALL conform to a defined basic-statistics shape rather than a
@@ -163,4 +162,3 @@ the total resource count across all types.
 - **WHEN** a case whose `view.resource` is `Condition` reports `inputRows`
 - **THEN** `inputRows` is the number of `Condition` resources loaded at that
   size, not the output row count and not the total across all resource types
-
