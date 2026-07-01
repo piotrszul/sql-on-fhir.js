@@ -4,19 +4,54 @@
   "title": "SQL on FHIR benchmark report schema",
   "type": "object",
   "required": ["implementation", "measurement", "results"],
-  "properties": {
-    "implementation": {
+  "definitions": {
+    "nameVersion": {
       "type": "object",
       "required": ["name", "version"],
       "properties": { "name": { "type": "string" }, "version": { "type": "string" } },
       "additionalProperties": false
+    }
+  },
+  "properties": {
+    "implementation": {
+      "type": "object",
+      "description": "Separates the execution engine (what runs the work) from an optional language binding and an optional variant.",
+      "required": ["engine"],
+      "properties": {
+        "engine": { "$ref": "#/definitions/nameVersion" },
+        "binding": { "$ref": "#/definitions/nameVersion" },
+        "variant": { "type": "string" }
+      },
+      "additionalProperties": false
     },
-    "benchmarkVersion": { "type": "string" },
-    "environment": { "type": "object" },
+    "benchmark": {
+      "$ref": "#/definitions/nameVersion",
+      "description": "The benchmark suite identity this report ran; generalizes the former scalar benchmarkVersion."
+    },
+    "dataset": {
+      "$ref": "#/definitions/nameVersion",
+      "description": "The dataset identity this report ran against, matching the checkfile it verified."
+    },
+    "environment": {
+      "type": "object",
+      "description": "Host details. runtime is the language runtime; the engine lives in implementation.engine.",
+      "properties": {
+        "os": { "type": "string" },
+        "arch": { "type": "string" },
+        "cpuModel": { "type": "string" },
+        "cpuCount": { "type": "integer" },
+        "memoryBytes": { "type": "integer" },
+        "runtime": { "$ref": "#/definitions/nameVersion" }
+      }
+    },
     "measurement": {
       "type": "object",
-      "required": ["phases", "sink", "warmup", "iterations"],
+      "required": ["scenario", "phases", "sink", "warmup", "iterations"],
       "properties": {
+        "scenario": {
+          "enum": ["end_to_end", "preloaded_repeated"],
+          "description": "Both map to JMH SingleShotTime (ss). end_to_end times one full NDJSON->CSV conversion per sample (sink csv); preloaded_repeated times a query over preloaded data with load excluded (sink table/memory)."
+        },
         "phases": { "type": "array", "items": { "enum": ["load", "execute", "extract"] } },
         "sink": { "enum": ["table", "csv", "memory", "other"] },
         "warmup": { "type": "integer", "minimum": 0 },
@@ -32,18 +67,52 @@
         "properties": {
           "size": { "type": "string" },
           "fhirVersion": { "type": "string" },
+          "resourceCounts": {
+            "type": "object",
+            "description": "Dataset resource counts observed at this size, mirroring the checkfile's resourceCounts.",
+            "additionalProperties": { "type": "integer", "minimum": 0 }
+          },
           "cases": {
             "type": "array",
             "items": {
               "type": "object",
-              "required": ["title", "status"],
+              "required": ["id", "status"],
               "properties": {
-                "title": { "type": "string" },
+                "id": {
+                  "type": "string",
+                  "description": "Matches the benchmark file's case id and the checkfile assertion key."
+                },
                 "status": { "enum": ["ok", "count_mismatch", "generation_error", "execution_error"] },
-                "inputRows": { "type": "integer" },
+                "inputRows": {
+                  "type": "integer",
+                  "description": "Number of input resources of the case's view.resource type loaded for this (case, size) — the throughput/normalization denominator; distinct from outputRows and from the total across all resource types."
+                },
                 "outputRows": { "type": "integer" },
-                "samplesMs": { "type": "array", "items": { "type": "number" } },
-                "stats": { "type": "object" },
+                "samplesMs": {
+                  "type": "array",
+                  "items": { "type": "number" },
+                  "description": "Raw per-sample times. A minimum of 7 samples is RECOMMENDED (advisory) for meaningful statistics; not enforced as a minItems floor."
+                },
+                "stats": {
+                  "type": "object",
+                  "description": "Defined basic-statistics shape projectable onto a JMH primaryMetric (score=mean, scoreError from ci95, scorePercentiles from p50/p95/min/max, rawData=samplesMs).",
+                  "required": ["mean", "min", "max", "stddev", "p50", "p95"],
+                  "properties": {
+                    "mean": { "type": "number" },
+                    "min": { "type": "number" },
+                    "max": { "type": "number" },
+                    "stddev": { "type": "number" },
+                    "p50": { "type": "number" },
+                    "p95": { "type": "number" },
+                    "ci95": {
+                      "type": "object",
+                      "required": ["lo", "hi"],
+                      "properties": { "lo": { "type": "number" }, "hi": { "type": "number" } },
+                      "additionalProperties": false
+                    }
+                  },
+                  "additionalProperties": false
+                },
                 "phaseSamplesMs": { "type": "object" }
               },
               "additionalProperties": false

@@ -1,0 +1,56 @@
+{
+  "$id": "https://sql-on-fhir.org/ig/benchmark-checkfile",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SQL on FHIR benchmark checkfile schema",
+  "description": "Committed build-time lock/checksum artifact. Home for everything GENERATED about a benchmark's dataset and expected results (as distinct from the authored benchmark file): dataset identity, generator version, per-size resource counts, per-file sha256 checksums, and the per-case per-size result assertions moved out of the benchmark file.",
+  "type": "object",
+  "required": ["dataset", "syntheaVersion", "sizes", "assertions"],
+  "properties": {
+    "dataset": {
+      "type": "object",
+      "description": "Dataset identity this checkfile locks; matches the benchmark file's dataset.name/dataset.version.",
+      "required": ["name", "version"],
+      "properties": { "name": { "type": "string" }, "version": { "type": "string" } },
+      "additionalProperties": false
+    },
+    "syntheaVersion": {
+      "type": "string",
+      "description": "The generator version actually used to produce the locked data."
+    },
+    "sizes": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["resourceCounts", "files"],
+        "properties": {
+          "resourceCounts": {
+            "type": "object",
+            "description": "Map from each kept resource type to its NDJSON row count at this size.",
+            "additionalProperties": { "type": "integer", "minimum": 0 }
+          },
+          "files": {
+            "type": "object",
+            "description": "Per-file sha256 checksums, one per materialized <ResourceType>.ndjson at this size.",
+            "additionalProperties": {
+              "type": "object",
+              "required": ["sha256"],
+              "properties": { "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" } },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "assertions": {
+      "type": "object",
+      "description": "Expected output row count per case, keyed by case id then by size. The former inline expectCount, moved here.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": { "type": "integer", "minimum": 0 }
+      }
+    }
+  },
+  "additionalProperties": false
+}

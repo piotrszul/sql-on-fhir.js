@@ -17,34 +17,34 @@ precedes its green step.
 
 ## 1. Schemas (public contracts) — TDD
 
-- [ ] 1.1 (RED) Write failing schema-validation tests: a benchmark file with
+- [x] 1.1 (RED) Write failing schema-validation tests: a benchmark file with
   inline `expectCount` is REJECTED; a case without a stable `id` is REJECTED; a
   benchmark file with an explicit dataset `version`, cases each carrying an `id`,
   and no `expectCount` is ACCEPTED
-- [ ] 1.2 (RED) Write failing schema-validation tests for
+- [x] 1.2 (RED) Write failing schema-validation tests for
   `benchmark-report.schema.json`: a report with the structured `implementation`
   (required `engine`, optional `binding`/`variant`) is ACCEPTED; one with the old
   flat `{ name, version }` is REJECTED; `measurement.scenario` outside
   `{ end_to_end, preloaded_repeated }` is REJECTED; a free-form `stats` missing
   the defined fields is REJECTED (the `>= 7` sample minimum is ADVISORY prose, NOT
   a schema `minItems` floor, so a low sample count is NOT schema-rejected)
-- [ ] 1.3 (RED) Write failing schema-validation tests for the NEW
+- [x] 1.3 (RED) Write failing schema-validation tests for the NEW
   `benchmark-checkfile.schema.json`: a well-formed checkfile (dataset identity,
   `syntheaVersion`, per-size `resourceCounts`, per-file `sha256`, `assertions`) is
   ACCEPTED; missing required fields and unknown top-level properties are REJECTED
-- [ ] 1.4 (RED) Confirm 1.1–1.3 fail for the right reason (schemas not yet
+- [x] 1.4 (RED) Confirm 1.1–1.3 fail for the right reason (schemas not yet
   updated / checkfile schema absent) — the mandatory red step
-- [ ] 1.5 (GREEN) Update `benchmark/benchmark.schema.json`: remove `expectCount`
+- [x] 1.5 (GREEN) Update `benchmark/benchmark.schema.json`: remove `expectCount`
   from cases; add a required stable case `id`; keep dataset `version` required;
   keep `additionalProperties: false`
-- [ ] 1.6 (GREEN) Restructure `implementation`, add `measurement.scenario`,
+- [x] 1.6 (GREEN) Restructure `implementation`, add `measurement.scenario`,
   replace `stats` with the defined shape, add benchmark + dataset provenance,
   dataset resource counts, and a required per-case `id` in
   `benchmark/benchmark-report.schema.json`; do NOT add a `minItems` floor on
   `samplesMs` (the `>= 7` minimum is advisory)
-- [ ] 1.7 (GREEN) Author the NEW `benchmark/benchmark-checkfile.schema.json`
+- [x] 1.7 (GREEN) Author the NEW `benchmark/benchmark-checkfile.schema.json`
   public contract per `benchmark-checkfile-format`
-- [ ] 1.8 (GREEN) Confirm 1.1–1.3 now pass
+- [x] 1.8 (GREEN) Confirm 1.1–1.3 now pass
 
 ## 2. Suite-format invariant validator — TDD
 
