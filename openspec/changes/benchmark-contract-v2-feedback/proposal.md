@@ -39,8 +39,8 @@ The three problems this change fixes:
 ## What Changes
 
 This is ONE follow-up change refining the merged contract v2 across two
-capabilities and one public schema. It does NOT change how `report.results` is
-keyed — that is explicitly out of scope (see below).
+capabilities and one public schema. It ALSO re-keys `report.results` by the
+stable suite `name` (decision #4 below).
 
 ### 1. Authored suite identity — `name` + `version` (#9, #18.1) — suite format + suite schema + report format
 
@@ -53,9 +53,8 @@ version}` SHALL source DIRECTLY from these authored fields — no more inventing
 from a pinned tag. The invariant validator SHALL require suite `name` and
 `version`.
 
-Out of scope: how `report.results` is keyed is NOT changed by this change (it
-remains as contract v2 defined it); the new suite `name` is provenance in
-`report.benchmark`, not a re-keying of `results`.
+The new suite `name` is carried as provenance in `report.benchmark` AND is the
+key of the `results` map (see decision #4).
 
 ### 2. Both scenarios use `sink: csv`; decouple sink from scenario (#5, #18.2) — report format
 
@@ -81,6 +80,16 @@ JMH projection updates accordingly: `scorePercentiles` derive from `median` plus
 any optional percentiles plus `min`/`max`, and a consumer MAY recompute from
 `samplesMs`.
 
+### 4. Re-key `report.results` by the stable suite `name` — report format
+
+Contract v2's report-structure requirement described `results` as "keyed by
+benchmark title". With suite `name` now an authored stable identity (decision 1),
+`report.results` SHALL instead be keyed by the suite `name` — the same stable id
+`report.benchmark.name` sources from, and consistent with how a case is
+referenced by its stable `id` (not `title`) and a dataset by `name`/`version`.
+The `title` remains a free-text human label that MAY change freely; keying on it
+made the map key mutable. The reference runner keys `results` by suite `name`.
+
 ## Capabilities
 
 ### Modified Capabilities
@@ -102,7 +111,9 @@ any optional percentiles plus `min`/`max`, and a consumer MAY recompute from
   the updated `benchmark.schema.json` requires both.
 - `report.benchmark.{name,version}` is sourced directly from the authored suite
   `name`/`version`, not invented from a pinned tag.
-- How `report.results` is keyed is UNCHANGED (out of scope).
+- `report.results` is keyed by the stable suite `name` (not the mutable
+  `title`), consistent with `report.benchmark.name`, the case `id`, and the
+  dataset `name`/`version`; the reference runner emits it so.
 - Both `end_to_end` and `preloaded_repeated` are described as (and recommended to)
   use `sink: csv`; the scenario distinction is purely whether `load` is inside the
   timed region. The `sink` enum is unchanged.
@@ -129,10 +140,11 @@ any optional percentiles plus `min`/`max`, and a consumer MAY recompute from
   implementation phase.
 - The reference runner report emission: source `report.benchmark.{name,version}`
   from the authored suite fields; emit `median` in `stats`; default `sink: csv`
-  for BOTH scenarios — implementation phase.
+  for BOTH scenarios; key the `results` map by the suite `name` (not `title`) —
+  implementation phase.
 - `benchmark/clinical-flat.json`: add the authored suite `name` + `version` —
   implementation phase.
 
-Out of scope: re-keying `report.results` (unchanged); any change to the dataset,
-checkfile, or materialized bytes (no re-bless); the JMH export itself (#11 — this
-only reshapes the stats it consumes).
+Out of scope: any change to the dataset, checkfile, or materialized bytes (no
+re-bless); the JMH export itself (#11 — this only reshapes the stats it
+consumes).

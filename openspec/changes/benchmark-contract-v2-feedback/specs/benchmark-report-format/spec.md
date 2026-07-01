@@ -1,5 +1,57 @@
 ## MODIFIED Requirements
 
+### Requirement: Report structure and status taxonomy
+
+A benchmark result report SHALL conform to the `benchmark-report.schema.json`
+public contract: it SHALL declare an `implementation`, a `measurement`
+descriptor, and `results` keyed by the stable suite `name` (the authored
+machine id, NOT the mutable `title`), consistent with how a case is referenced
+by its stable `id` and a dataset by its `name`/`version`. The `implementation`
+SHALL separate the execution engine from an optional language binding and an
+optional variant: `implementation.engine` (`{ name, version }`, REQUIRED) is the
+thing that actually runs the work; `implementation.binding` (`{ name, version }`,
+OPTIONAL) is a language wrapper sharing that same engine (a Python wrapper over a
+JVM engine is a binding, not a distinct engine); `implementation.variant`
+(string, OPTIONAL) is a config/mode discriminator. Each result SHALL declare its
+`size` and a `cases` array; each case SHALL declare its `id` (matching the
+benchmark file's case `id` and the checkfile assertion key) and a `status` that is
+one of `ok`, `count_mismatch`, `generation_error`, or `execution_error`, and MAY
+declare `inputRows`, `outputRows`, `samplesMs`, `stats`, and `phaseSamplesMs`.
+
+#### Scenario: Well-formed report is accepted
+
+- **WHEN** a report with a structured `implementation` (a required `engine`), a
+  `measurement`, and `results` is validated against
+  `benchmark-report.schema.json`
+- **THEN** validation passes
+
+#### Scenario: Engine is required, binding and variant are optional
+
+- **WHEN** a report declares `implementation.engine` but omits `binding` and
+  `variant`
+- **THEN** validation passes; and a report that omits `implementation.engine`
+  fails validation
+
+#### Scenario: Invalid status is rejected
+
+- **WHEN** a case `status` is a value outside the defined taxonomy
+- **THEN** schema validation fails
+
+#### Scenario: Case result carries its id
+
+- **WHEN** a report's per-case result is inspected
+- **THEN** it declares the `id` of the benchmark case it corresponds to, matching
+  the checkfile assertion key, so results tie to assertions by a stable id rather
+  than a mutable title
+
+#### Scenario: Results are keyed by the stable suite name
+
+- **WHEN** a report is produced from a benchmark file that declares suite
+  `name` and `title`
+- **THEN** the `results` map is keyed by the authored suite `name`, not by the
+  free-text `title`, so the key is stable across title edits and consistent with
+  `report.benchmark.name`
+
 ### Requirement: Reverse-ETL measurement model
 
 The report SHALL describe work as a reverse-ETL of three phases — `load` (source
@@ -82,7 +134,9 @@ outside the contract); the dataset identity it ran against
 (`dataset.name`/`dataset.version`, matching the checkfile it verified); and the
 dataset resource counts observed at each size (mirroring the checkfile's
 `resourceCounts`). The FHIR version the numbers were produced against SHALL be
-recordable. How `results` is keyed is unchanged by this requirement.
+recordable. The `results` map is keyed by the authored suite `name` (see the
+Report structure requirement), the same stable identity `report.benchmark.name`
+sources from.
 
 #### Scenario: Results are size-keyed for scaling curves
 
