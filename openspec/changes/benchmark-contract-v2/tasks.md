@@ -127,17 +127,17 @@ precedes its green step.
 
 ## 9. One-time re-bless under TZ=UTC (implementation-phase, run once)
 
-- [ ] 9.1 With a configured `tools/executors.config.json` (Synthea 3.2.0 jar),
+- [x] 9.1 With a configured `tools/executors.config.json` (Synthea 3.2.0 jar),
   materialize `clinical-flat` at sizes `s` and `m` with `force` under the
   `TZ=UTC` executor, writing `data/synthea-clinical/<version>/<size>/`
-- [ ] 9.2 Bless via the runner's `--record` path to WRITE
+- [x] 9.2 Bless via the runner's `--record` path to WRITE
   `benchmark/clinical-flat.check.json` — recording per-size resource counts,
   per-file sha256, and the result assertions (do NOT hand-edit counts; do NOT
   reintroduce inline `expectCount`)
-- [ ] 9.3 Record that the counts moved off the Wave 0 AEST values (condition-flat
+- [x] 9.3 Record that the counts moved off the Wave 0 AEST values (condition-flat
   s=6406/m=48483, observation-components s=4366/m=39336) — the exact new UTC
   numbers are the output of this bless, captured in the checkfile
-- [ ] 9.4 Re-run materialization to confirm byte identity: the per-file sha256 in
+- [x] 9.4 Re-run materialization to confirm byte identity: the per-file sha256 in
   the checkfile reproduce, and the manifest counts match the checkfile
 
 ## 10. Verify green before merge (Constitution V)

@@ -90,3 +90,32 @@ test('materializing under two simulated timezones yields identical per-file sha2
     rmSync(rootA, { recursive: true })
   }
 })
+
+// Synthea's bulk export emits the same resources in a NON-deterministic LINE ORDER
+// across runs even with --generate.thread_count=1 (the flag governs generation, not
+// the export iteration order). The materializer canonicalises by sorting NDJSON lines
+// so the persisted bytes — and thus the sha256 — are stable across runs.
+test('materialize canonicalises NDJSON line order so shuffled output yields identical sha256', async () => {
+  const lines = ['{"id":"c"}', '{"id":"a"}', '{"id":"b"}']
+  const orderA = async (recipe, population, outDir) => {
+    mkdirSync(outDir, { recursive: true })
+    writeFileSync(join(outDir, 'Condition.ndjson'), lines.join('\n') + '\n')
+  }
+  const orderB = async (recipe, population, outDir) => {
+    mkdirSync(outDir, { recursive: true })
+    writeFileSync(join(outDir, 'Condition.ndjson'), [...lines].reverse().join('\n') + '\n')
+  }
+  const sha = (p) => createHash('sha256').update(readFileSync(p)).digest('hex')
+
+  const rootA = freshRoot()
+  await materialize({ dataset, size: 's', dataRoot: rootA, executor: orderA, force: true })
+  const shaA = sha(resourceFile(rootA, 'synthea-clinical', '1', 's', 'Condition'))
+
+  const rootB = freshRoot()
+  await materialize({ dataset, size: 's', dataRoot: rootB, executor: orderB, force: true })
+  const shaB = sha(resourceFile(rootB, 'synthea-clinical', '1', 's', 'Condition'))
+
+  expect(shaA).toBe(shaB)
+  rmSync(rootA, { recursive: true })
+  rmSync(rootB, { recursive: true })
+})

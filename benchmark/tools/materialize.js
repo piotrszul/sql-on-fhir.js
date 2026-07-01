@@ -1,13 +1,20 @@
-import { mkdtempSync, mkdirSync, existsSync, readFileSync, writeFileSync, renameSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, existsSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { datasetDir, manifestFile, recipeOf } from './layout.js'
 
-function countLines(path) {
-  const txt = readFileSync(path, 'utf8')
-  if (txt.length === 0) return 0
-  return txt.endsWith('\n') ? txt.split('\n').length - 1 : txt.split('\n').length
+// Synthea's bulk export emits the same resources in a non-deterministic LINE ORDER
+// across runs (--generate.thread_count=1 pins generation, not export iteration order),
+// so the raw NDJSON is only SORTED-identical, not byte-identical. Canonicalise by
+// sorting lines with a byte-wise comparator so the persisted bytes — and their
+// sha256 — are stable across environments, which is what the checkfile locks.
+function canonicaliseNdjson(src, dst) {
+  const txt = readFileSync(src, 'utf8')
+  const lines = txt.split('\n').filter((l) => l.length > 0)
+  lines.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+  writeFileSync(dst, lines.length ? lines.join('\n') + '\n' : '')
+  return lines.length
 }
 
 function sha256Of(path) {
@@ -37,8 +44,7 @@ export async function materialize({ dataset, size, dataRoot, executor, force = f
       const src = join(staging, `${r}.ndjson`)
       if (!existsSync(src)) throw new Error(`executor did not produce ${r}.ndjson`)
       const dst = join(dir, `${r}.ndjson`)
-      renameSync(src, dst)
-      counts[r] = countLines(dst)
+      counts[r] = canonicaliseNdjson(src, dst)
       checksums[`${r}.ndjson`] = { sha256: sha256Of(dst) }
     }
     const manifest = {

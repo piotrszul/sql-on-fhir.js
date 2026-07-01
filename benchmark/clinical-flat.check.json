@@ -1,0 +1,47 @@
+{
+  "dataset": {
+    "name": "synthea-clinical",
+    "version": "1"
+  },
+  "syntheaVersion": "3.2.0",
+  "sizes": {
+    "s": {
+      "resourceCounts": {
+        "Condition": 6406,
+        "Observation": 10085
+      },
+      "files": {
+        "Condition.ndjson": {
+          "sha256": "1376a94d5cedfdd7fa45fe318fb084a7f665349fde1e8d796c8dd0cfe63f1221"
+        },
+        "Observation.ndjson": {
+          "sha256": "e7332cd9b3152a99fd8cf424cd5ed86a8db2fcb9705cd71a518b7b0ef438bee1"
+        }
+      }
+    },
+    "m": {
+      "resourceCounts": {
+        "Condition": 48908,
+        "Observation": 100607
+      },
+      "files": {
+        "Condition.ndjson": {
+          "sha256": "73673404e1ac96e035e2a72edb70a77f806c28a3caf9792c9792f05611545278"
+        },
+        "Observation.ndjson": {
+          "sha256": "7cf68514eb90d16d1b6aefd3248b7365c4cb336951f8b80b448c3d0ee407ceb0"
+        }
+      }
+    }
+  },
+  "assertions": {
+    "condition-flat": {
+      "s": 6406,
+      "m": 48908
+    },
+    "observation-components": {
+      "s": 4366,
+      "m": 39479
+    }
+  }
+}
