@@ -87,9 +87,10 @@ export function buildReport({
     return { id: c.id, status, inputRows, outputRows, samplesMs, stats: statsOf(samplesMs) }
   })
   // end_to_end times load + execute + extract; preloaded_repeated excludes load.
-  // The sink is csv for BOTH scenarios (benchmark-report-format): a full
-  // materialization inside the timed region so extract cost is comparable and an
-  // optimizer cannot prune it. The scenario distinction is PURELY the load boundary.
+  // The sink is csv for BOTH scenarios (benchmark-report-format): timeEvaluate
+  // serializes the evaluated rows to CSV inside the timed region, so extract cost
+  // genuinely reflects sink: 'csv' and an optimizer cannot prune it. The scenario
+  // distinction is PURELY the load boundary, not the sink.
   const phases = scenario === 'end_to_end' ? ['load', 'execute', 'extract'] : ['execute', 'extract']
   return {
     implementation: impl,

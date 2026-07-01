@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { evaluate } from './index.js'
+import { serializeCsv } from './csv.js'
 
 export function loadResources(ndjsonPath) {
   return readFileSync(ndjsonPath, 'utf8')
@@ -8,18 +9,25 @@ export function loadResources(ndjsonPath) {
     .map((l) => JSON.parse(l))
 }
 
+// The timed region does a FULL extract: it evaluates the view AND serializes the
+// resulting rows to CSV, so the recorded cost genuinely reflects sink: 'csv' and
+// is comparable to a runner that writes real CSV. An optimizer cannot prune the
+// serialization because its output (`csv`) is retained. `outputRows` counts the
+// evaluated rows (serialization does not change the count semantics).
 export function timeEvaluate(view, resources, { warmup, measurement }) {
-  for (let i = 0; i < warmup; i++) evaluate(view, resources)
+  for (let i = 0; i < warmup; i++) serializeCsv(evaluate(view, resources))
   const samplesMs = []
   let outputRows = 0
+  let csv = ''
   for (let i = 0; i < measurement; i++) {
     const t0 = performance.now()
     const rows = evaluate(view, resources)
+    csv = serializeCsv(rows)
     const t1 = performance.now()
     samplesMs.push(t1 - t0)
     outputRows = rows.length
   }
-  return { samplesMs, outputRows }
+  return { samplesMs, outputRows, csv }
 }
 
 function percentile(sorted, p) {
