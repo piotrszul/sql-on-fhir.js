@@ -27,25 +27,6 @@ outside the artifact, in a file that is not committed.
 - **THEN** it reads them from a gitignored `tools/executors.config.json`, not from
   any benchmark file
 
-### Requirement: Content-hashed on-disk layout and provenance manifest
-
-Materialized data SHALL be written under
-`data/<name>_<hash>/<size>/<ResourceType>.ndjson`, one resource per line, with a
-sibling `manifest.json` recording the recipe identity, population, per-file row
-counts, and a timestamp. `<hash>` SHALL be a content hash of the recipe that is
-independent of JSON key order, so identical recipes resolve to the same directory
-and distinct sizes coexist without clobbering.
-
-#### Scenario: Recipe hash is key-order independent
-
-- **WHEN** the same recipe is hashed with its keys in two different orders
-- **THEN** the resulting `<hash>` (and directory) is identical
-
-#### Scenario: Manifest records per-file row counts
-
-- **WHEN** a dataset is materialized
-- **THEN** `manifest.json` lists each kept resource type and its NDJSON row count
-
 ### Requirement: Generate-then-prune keeps only selected resources
 
 Because the generator has no per-resource export filter, the materializer SHALL
@@ -96,21 +77,33 @@ patients; larger demographic sizes are deferred until a download kind exists.
 
 ### Requirement: Reproducible Synthea materialization
 
-The `synthea` executor SHALL invoke Synthea deterministically so that
-`recipe + generator version` produces identical per-resource row counts across
-environments and across wall-clock time, at day granularity. To that end the
-executor SHALL pass the pinned simulation end date from the recipe as Synthea's
-`-e` flag (from `params.endTime`), alongside the existing `-r`
+The `synthea` executor SHALL invoke Synthea deterministically so that, combined
+with the materializer's NDJSON line-canonicalization,
+`recipe + generator version` produces BYTE-IDENTICAL per-resource NDJSON across
+environments and across wall-clock time, not merely identical row counts.
+Byte-identity across environments is delivered by two mechanisms together:
+`TZ=UTC` (so emitted timestamps render identically regardless of host timezone)
+PLUS the materializer's deterministic, locale-independent NDJSON line
+canonicalization (so the persisted line order is stable regardless of Synthea's
+bulk-export iteration order). To that
+end the executor SHALL pass the pinned simulation end date from the recipe as
+Synthea's `-e` flag (from `params.endTime`), alongside the existing `-r`
 (`params.referenceTime`), `-s` (`params.seed`), and `-cs`
-(`params.clinicianSeed`). The executor SHALL NOT rely on Synthea's wall-clock
-default for the end date. The executor SHALL pass `--generate.thread_count=1`
-so the export *order* is deterministic. The output-affecting export toggles
-SHALL be sourced from the recipe `params`
+(`params.clinicianSeed`), and SHALL run Synthea with `TZ=UTC` in its process
+environment so that emitted `dateTime`/`instant` fields do not encode a local
+timezone offset. The executor SHALL NOT rely on Synthea's wall-clock default for
+the end date and SHALL NOT rely on the host timezone for timestamp rendering. The
+executor SHALL pass `--generate.thread_count=1` to aid generation determinism;
+this flag does NOT by itself stabilize Synthea's bulk-export line order, so the
+materializer's line-canonicalization is what makes the persisted bytes
+reproducible. The output-affecting export toggles SHALL be sourced from the
+recipe `params`
 (`--exporter.years_of_history=<params.yearsOfHistory>`,
 `--exporter.hospital.fhir.export=<params.hospitalExport>`,
 `--exporter.practitioner.fhir.export=<params.practitionerExport>`,
 `--exporter.fhir.bulk_data=<params.bulkData>`) rather than hardcoded in the
-executor.
+executor. Byte identity across environments is the precondition that makes the
+checkfile's per-file sha256 checksums meaningful.
 
 #### Scenario: End date is pinned from the recipe
 
@@ -118,12 +111,18 @@ executor.
 - **THEN** it invokes Synthea with `-e <params.endTime>` and never allows the
   end date to default to the machine's local date
 
-#### Scenario: Same recipe and version reproduce counts across time
+#### Scenario: Timezone is pinned to UTC
+
+- **WHEN** the `synthea` executor invokes Synthea
+- **THEN** it runs with `TZ=UTC` in the process environment, so emitted
+  timestamps render in UTC regardless of the host timezone
+
+#### Scenario: Same recipe and version reproduce bytes across time and timezone
 
 - **WHEN** the same `synthea` recipe (same version) is materialized on two
   different wall-clock dates or in two different timezones
-- **THEN** the per-resource row counts recorded in each `manifest.json` are
-  identical
+- **THEN** the per-resource NDJSON is byte-identical (identical per-file sha256),
+  not merely identical in row count
 
 #### Scenario: Export toggles come from the recipe
 
@@ -133,9 +132,52 @@ executor.
   their values from the recipe `params`, and no output-affecting Synthea flag is
   hardcoded in the executor
 
-#### Scenario: Export order is deterministic
+#### Scenario: Persisted NDJSON is order-stable via materializer canonicalization
 
-- **WHEN** the `synthea` executor invokes Synthea
-- **THEN** it passes `--generate.thread_count=1`, so a content/order comparison
-  of the materialized NDJSON is stable across runs
+- **WHEN** the `synthea` executor invokes Synthea and its bulk export emits
+  resources in an unstable line order across runs (which `--generate.thread_count=1`
+  does not by itself prevent)
+- **THEN** the materializer's line-canonicalization sorts those lines
+  deterministically, so the persisted NDJSON — and its per-file sha256 — is
+  byte-identical across runs
+
+### Requirement: Identity-keyed on-disk layout and provenance manifest
+
+Materialized data SHALL be written under
+`data/<name>/<version>/<size>/<ResourceType>.ndjson`, one resource per line,
+where `<name>` and `<version>` are the dataset's explicit, human-maintained
+identity (`dataset.name`, `dataset.version`) — NOT a derived content hash. The
+materializer SHALL NOT compute or depend on any content hash of the recipe to
+locate or key the data; the identity is the `name`/`version` string pair alone.
+A sibling `manifest.json` SHALL record the recipe identity, population, per-file
+row counts, and a timestamp. Distinct versions and distinct sizes coexist without
+clobbering because they occupy distinct directories. The materializer SHALL
+canonicalize the persisted NDJSON line order with a deterministic,
+locale-independent ordinal sort so that persisted bytes reproduce across runs
+regardless of the order in which the executor emitted the resources.
+
+#### Scenario: Persisted NDJSON line order is canonicalized
+
+- **WHEN** the materializer writes a resource's NDJSON to disk
+- **THEN** it sorts the lines with a deterministic, locale-independent ordinal
+  comparator, so two runs that emit the same lines in different orders persist
+  byte-identical NDJSON (identical per-file sha256)
+
+#### Scenario: Data is keyed by explicit name and version
+
+- **WHEN** a dataset named `synthea-clinical` at `version` `1` is materialized at
+  size `m`
+- **THEN** its files are written under `data/synthea-clinical/1/m/` and no
+  content-hash directory segment is produced
+
+#### Scenario: No content hash is derived
+
+- **WHEN** the materializer resolves where to write a dataset
+- **THEN** it uses only the dataset's `name` and `version`, computing no
+  recipe content hash and requiring no key-order canonicalization
+
+#### Scenario: Manifest records per-file row counts
+
+- **WHEN** a dataset is materialized
+- **THEN** `manifest.json` lists each kept resource type and its NDJSON row count
 
