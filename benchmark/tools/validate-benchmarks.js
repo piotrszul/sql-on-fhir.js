@@ -19,10 +19,23 @@ export function validateBenchmark(file) {
   if (ds.defaultSize && !sizes.includes(ds.defaultSize))
     errors.push(`defaultSize "${ds.defaultSize}" is not a declared size`)
 
-  // A synthea dataset must pin its simulation end date explicitly; without it the
-  // executor would otherwise track the wall clock, making the dataset irreproducible.
-  if (ds.kind === 'synthea' && ds.params?.endTime == null)
-    errors.push('synthea dataset must declare params.endTime (pinned simulation end date)')
+  // A synthea dataset must declare every output-affecting param in the recipe so
+  // that recipe + version fully determines the dataset. If any is omitted the
+  // executor would interpolate `undefined` into the Synthea CLI (silently read as
+  // false / wall-clock), yielding the wrong dataset with no error. The booleans are
+  // guarded on `== null` (not falsy) so an explicit `false` is a valid declared value.
+  if (ds.kind === 'synthea') {
+    const requiredParams = {
+      endTime: 'pinned simulation end date',
+      yearsOfHistory: 'exported years of history',
+      hospitalExport: 'hospital FHIR export toggle',
+      practitionerExport: 'practitioner FHIR export toggle',
+      bulkData: 'bulk-data export toggle',
+    }
+    for (const [name, desc] of Object.entries(requiredParams)) {
+      if (ds.params?.[name] == null) errors.push(`synthea dataset must declare params.${name} (${desc})`)
+    }
+  }
 
   for (const c of file.cases || []) {
     const res = c.view?.resource

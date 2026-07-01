@@ -108,24 +108,31 @@ Param names and their default (current-behaviour-preserving) values:
 The moved toggles keep their current values, so *they alone* do not change the
 data; only `endTime` moving from wall-clock to `20250101` changes the counts.
 
-## Expected re-bless impact
+## Measured re-bless impact
 
-Pinning `endTime = 20250101` will change the blessed `expectCount` values away
-from today's accidental `m` counts (Condition 50090 / Observation 106613, which
-correspond to the wall-clock `20260630`). The new counts are whatever
-`20250101` deterministically yields and must be measured once during
-implementation by running Synthea 3.2.0 with the pinned recipe and re-blessing
-via the reference runner's bless path. Size `s` is expected to be unaffected
-(it was end-date-insensitive), but this is verified, not assumed. **No count
-value is asserted in this proposal;** the re-bless produces the authoritative
-numbers, and the `expectCount` scenarios then hold by construction.
+Pinning `endTime = 20250101` changed the blessed `expectCount` values away from
+the accidental wall-clock (`20260630`) counts. The re-bless was performed once
+during implementation by running Synthea 3.2.0 with the pinned recipe and
+re-blessing via the reference runner's bless path. The measured movement:
+
+| case                   | size `s` | size `m` |
+|------------------------|----------|----------|
+| condition flat         | 6219 → 6406 | 50090 → 48483 |
+| observation components | 4794 → 4366 | 40983 → 39336 |
+
+Note that size `s` was **not** end-date-insensitive at the flattened-view level:
+both cases moved at `s`, contrary to the earlier expectation. The size-`m`
+Observation *view* (component-flattened) count moved 40983 → 39336; the
+`106613` figure quoted elsewhere in the change history was the raw Observation
+*resource* count, not the flattened-view row count these `expectCount` values
+measure. These are the measured, committed numbers, and the `expectCount`
+scenarios hold by construction against them.
 
 ## Risks / Trade-offs
 
-- [The exact new `m` counts are unknown until Synthea is run] → Acceptable: the
-  determinism claim is the contract; the specific numbers are an output of the
-  one-time re-bless, not something to hand-pick. The re-bless is gated on this
-  proposal's approval.
+- [The exact new counts were an output of the one-time re-bless, not hand-picked]
+  → Acceptable: the determinism claim is the contract; the measured numbers (see
+  "Measured re-bless impact") are what `20250101` deterministically yields.
 - [Choosing `20250101` over the current `20260630` moves the blessed numbers] →
   Intended. Any fixed date forces a one-time re-bless; a principled date is
   worth the same one-time cost as an incidental one.

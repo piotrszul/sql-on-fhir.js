@@ -10,7 +10,11 @@ existing `seed`, `clinicianSeed`, and `referenceTime`, the `params` SHALL
 include a pinned simulation end date `endTime` (`YYYYMMDD`), and SHALL carry the
 export toggles that shape the output — `yearsOfHistory`, `hospitalExport`,
 `practitionerExport`, and `bulkData`. The invariant validator SHALL report an
-error when a `synthea` recipe omits `endTime`.
+error naming any of these output-affecting params (`endTime`, `yearsOfHistory`,
+`hospitalExport`, `practitionerExport`, `bulkData`) that a `synthea` recipe
+omits. Because the boolean toggles are meaningful when `false`, the validator
+treats only an absent (null/undefined) value as an omission, not an explicit
+`false`.
 
 #### Scenario: Recipe declares an explicit end date
 
@@ -23,6 +27,17 @@ error when a `synthea` recipe omits `endTime`.
 - **WHEN** a `synthea` recipe's `params` omit `endTime`
 - **THEN** the invariant validator returns an error naming the recipe and the
   missing `endTime`
+
+#### Scenario: Any missing output-affecting param is rejected
+
+- **WHEN** a `synthea` recipe's `params` omit any output-affecting input —
+  `endTime`, `yearsOfHistory`, `hospitalExport`, `practitionerExport`, or
+  `bulkData`
+- **THEN** the invariant validator returns an error naming the missing param,
+  so an unspecified input can never be interpolated into the executor as
+  `undefined` (and silently read as false / wall-clock)
+- **AND** an explicit `false` for a boolean toggle is accepted as a declared
+  value, not treated as omitted
 
 #### Scenario: Export toggles live in the recipe
 

@@ -119,6 +119,24 @@ test('synthea executor keeps --exporter.fhir.export=true as an invariant', async
   expect(args).toContain('--exporter.fhir.export=true')
 })
 
+test('no synthea arg leaks the literal "undefined" for a fully-declared recipe', async () => {
+  // Regression guard: every output-affecting param is required by the invariant
+  // validator precisely because a missing one would interpolate `undefined` into
+  // the CLI (silently read as false / wall-clock). With the full param set declared,
+  // no captured arg may contain the substring "undefined".
+  const args = await captureArgs({
+    params: {
+      seed: 589,
+      endTime: 20250101,
+      yearsOfHistory: 1,
+      hospitalExport: false,
+      practitionerExport: false,
+      bulkData: true,
+    },
+  })
+  expect(args.every((a) => !String(a).includes('undefined'))).toBe(true)
+})
+
 test('synthea invocation is wall-clock-independent: same recipe → identical args', async () => {
   // The dataset window is fully pinned by params; the executor must never inject a
   // wall-clock date. Two invocations of the same recipe yield byte-identical args,

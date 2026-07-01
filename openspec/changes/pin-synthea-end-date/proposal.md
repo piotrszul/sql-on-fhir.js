@@ -20,8 +20,10 @@ Regenerating with `-e 20260630` reproduces the blessed data byte-for-byte
 (Condition = 50090, Observation = 106613, seed 589, same jar). Neighbouring end
 dates give different counts (`20260628` → 50054, `20260629` → 50037,
 `20260701` → 50095), confirming `-e` is the sole drift cause within one Synthea
-version. Size `s` (population 100) happened to be end-date-insensitive, which is
-why the drift only surfaced at `m`.
+version. Size `s` (population 100) appeared end-date-insensitive at the raw
+resource-count level during root-causing, which is why the drift first surfaced
+at `m`; the later re-bless showed `s` was **not** insensitive at the
+flattened-view level (see "Re-bless once" below).
 
 Related, per Synthea's own "Recreating a Dataset" guidance, reproducing a
 dataset requires pinning `-s`, `-cs`, `-r`, **and `-e`**, plus a fixed
@@ -48,12 +50,16 @@ does not fully describe the dataset, and the content hash does not cover them.
   `--exporter.fhir.bulk_data`, `--exporter.years_of_history`) become recipe
   `params`, so that `recipe + version` fully determines the dataset and the
   content hash covers every output-affecting input.
-- **Re-bless once.** After `endTime` is pinned to its chosen fixed value, the
-  blessed `expectCount` values are regenerated once against that pinned date.
-  Pinning `-e` to a fixed value deterministically changes the counts away from
-  today's accidental 50090/106613 to whatever the pinned date yields. **This
-  proposal does not perform the re-bless; it is a downstream implementation
-  step, called out here so the human gate can approve the count movement.**
+- **Re-bless once.** After `endTime` was pinned to `20250101`, the blessed
+  `expectCount` values were regenerated once against that pinned date. Pinning
+  `-e` to a fixed value deterministically changed the counts away from the
+  wall-clock (`20260630`) accident. The measured movement, at the
+  flattened-view level, was: condition flat `s` 6219 → 6406 / `m` 50090 →
+  48483; observation components `s` 4794 → 4366 / `m` 40983 → 39336. Size `s`
+  was **not** end-date-insensitive at the view level — both cases moved at `s`.
+  (The `106613` raw-Observation-*resource* count in the "Why" section is not an
+  `expectCount`; the component-flattened *view* count is the 40983 → 39336
+  figure above.) See `design.md` for the full re-bless table.
 
 This is a change to the **benchmark suite-format contract** (the recipe
 `params` gain new fields) and to the **dataset-materialization behaviour**

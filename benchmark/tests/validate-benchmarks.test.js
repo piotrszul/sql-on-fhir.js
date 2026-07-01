@@ -9,7 +9,13 @@ const base = () => ({
     kind: 'synthea',
     version: '3.2.0',
     resources: ['Condition'],
-    params: { endTime: 20250101 },
+    params: {
+      endTime: 20250101,
+      yearsOfHistory: 1,
+      hospitalExport: false,
+      practitionerExport: false,
+      bulkData: true,
+    },
     sizes: { s: { population: 100 }, m: { population: 1000 } },
     defaultSize: 's',
   },
@@ -49,6 +55,38 @@ test('a synthea recipe missing params.endTime is rejected', () => {
   const f = base()
   delete f.dataset.params.endTime
   expect(validateBenchmark(f).some((e) => e.includes('endTime'))).toBe(true)
+})
+
+test('a synthea recipe missing params.yearsOfHistory is rejected', () => {
+  const f = base()
+  delete f.dataset.params.yearsOfHistory
+  expect(validateBenchmark(f).some((e) => e.includes('yearsOfHistory'))).toBe(true)
+})
+
+test('a synthea recipe missing params.hospitalExport is rejected', () => {
+  const f = base()
+  delete f.dataset.params.hospitalExport
+  expect(validateBenchmark(f).some((e) => e.includes('hospitalExport'))).toBe(true)
+})
+
+test('a synthea recipe missing params.practitionerExport is rejected', () => {
+  const f = base()
+  delete f.dataset.params.practitionerExport
+  expect(validateBenchmark(f).some((e) => e.includes('practitionerExport'))).toBe(true)
+})
+
+test('a synthea recipe missing params.bulkData is rejected', () => {
+  const f = base()
+  delete f.dataset.params.bulkData
+  expect(validateBenchmark(f).some((e) => e.includes('bulkData'))).toBe(true)
+})
+
+test('a synthea recipe with boolean toggles set to false is valid (false is a declared value)', () => {
+  const f = base()
+  f.dataset.params.hospitalExport = false
+  f.dataset.params.practitionerExport = false
+  f.dataset.params.bulkData = false
+  expect(validateBenchmark(f)).toEqual([])
 })
 
 test('defaultSize must be a declared size', () => {
