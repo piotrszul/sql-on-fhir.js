@@ -19,11 +19,17 @@ const base = () => ({
     sizes: { s: { population: 100 }, m: { population: 1000 } },
     defaultSize: 's',
   },
-  cases: [{ title: 'c', view: { resource: 'Condition' }, expectCount: { s: 10, m: 100 } }],
+  cases: [{ id: 'c', title: 'c', view: { resource: 'Condition' } }],
 })
 
 test('a valid file yields no errors', () => {
   expect(validateBenchmark(base())).toEqual([])
+})
+
+test('a case carrying inline expectCount is flagged (generated facts belong in the checkfile)', () => {
+  const f = base()
+  f.cases[0].expectCount = { s: 10, m: 100 }
+  expect(validateBenchmark(f).some((e) => e.includes('expectCount'))).toBe(true)
 })
 
 test('case view.resource must be in dataset.resources', () => {
@@ -43,12 +49,6 @@ test('reference functions are allowed (single-resource is a measurement-setup pr
     },
   ]
   expect(validateBenchmark(f)).toEqual([])
-})
-
-test('expectCount keys must be declared sizes', () => {
-  const f = base()
-  f.cases[0].expectCount = { s: 10, XL: 1 }
-  expect(validateBenchmark(f).some((e) => e.includes('expectCount size "XL"'))).toBe(true)
 })
 
 test('a synthea recipe missing params.endTime is rejected', () => {

@@ -40,13 +40,16 @@ export function makeSyntheaExecutor(config) {
       // so it is an executor invariant rather than a recipe-controlled dataset dial.
       '--exporter.fhir.export=true',
       // Output-affecting toggles are sourced from the recipe params so that
-      // recipe + version fully determines the dataset and the content hash covers them.
+      // recipe + version fully determines the dataset (the version tag records intent).
       `--exporter.fhir.bulk_data=${p.bulkData}`,
       `--exporter.hospital.fhir.export=${p.hospitalExport}`,
       `--exporter.practitioner.fhir.export=${p.practitionerExport}`,
       `--exporter.years_of_history=${p.yearsOfHistory}`,
     ]
-    const res = spawnSync(java, args, { stdio: 'inherit' })
+    // Pin TZ=UTC so Synthea renders emitted dateTime/instant fields in UTC rather
+    // than the host timezone offset, making the generated NDJSON byte-identical
+    // across environments (the precondition for the checkfile's sha256 checksums).
+    const res = spawnSync(java, args, { stdio: 'inherit', env: { ...process.env, TZ: 'UTC' } })
     if (res.status !== 0) throw new Error(`synthea exited with status ${res.status}`)
     // Synthea writes per-resource NDJSON under <outDir>/fhir/ ; lift them to <outDir>/
     const fhirDir = join(outDir, 'fhir')

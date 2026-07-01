@@ -36,11 +36,14 @@ guarded(
 
 // Spy on spawnSync: record args, fake a successful run that produces a fhir/ dir.
 let capturedArgs = null
+let capturedOptions = null
 function installSpawnSpy() {
   capturedArgs = null
+  capturedOptions = null
   mock.module('node:child_process', () => ({
-    spawnSync: (_java, args) => {
+    spawnSync: (_java, args, options) => {
       capturedArgs = args
+      capturedOptions = options
       // find the outDir from --exporter.baseDirectory=<dir> and stub a fhir/ output
       const baseArg = args.find((a) => String(a).startsWith('--exporter.baseDirectory='))
       const outDir = baseArg.slice('--exporter.baseDirectory='.length)
@@ -56,6 +59,11 @@ afterEach(() => {
 })
 
 async function captureArgs(recipe) {
+  await captureCall(recipe)
+  return capturedArgs
+}
+
+async function captureCall(recipe) {
   installSpawnSpy()
   // re-import after mocking so the executor picks up the spy
   const { makeSyntheaExecutor: make } = await import('../tools/executors/synthea.js')
@@ -66,8 +74,25 @@ async function captureArgs(recipe) {
   } finally {
     rmSync(out, { recursive: true, force: true })
   }
-  return capturedArgs
+  return { args: capturedArgs, options: capturedOptions }
 }
+
+test('synthea executor sets TZ=UTC in the child process environment', async () => {
+  // Synthea renders the local timezone offset into emitted dateTime/instant fields.
+  // Pinning TZ=UTC makes the NDJSON byte-identical across environments, which is the
+  // precondition for the checkfile's per-file sha256 checksums to be meaningful.
+  const { options } = await captureCall({
+    params: {
+      seed: 589,
+      endTime: 20250101,
+      yearsOfHistory: 1,
+      hospitalExport: false,
+      practitionerExport: false,
+      bulkData: true,
+    },
+  })
+  expect(options?.env?.TZ).toBe('UTC')
+})
 
 test('synthea executor passes -e from params.endTime', async () => {
   const args = await captureArgs({ params: { endTime: 20250101, yearsOfHistory: 1 } })

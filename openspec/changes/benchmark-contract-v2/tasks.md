@@ -48,21 +48,21 @@ precedes its green step.
 
 ## 2. Suite-format invariant validator — TDD
 
-- [ ] 2.1 (RED) Write failing tests: the invariant validator flags a case that
+- [x] 2.1 (RED) Write failing tests: the invariant validator flags a case that
   carries `expectCount`; the `defaultSize`/`group` size-tier checks still hold;
   the former `expectCount`-key-versus-size check is gone from the suite validator
-- [ ] 2.2 (RED) Confirm the tests fail for the right reason
-- [ ] 2.3 (GREEN) Update the benchmark invariant validator accordingly; confirm
+- [x] 2.2 (RED) Confirm the tests fail for the right reason
+- [x] 2.3 (GREEN) Update the benchmark invariant validator accordingly; confirm
   the tests pass
 
 ## 3. Executor TZ=UTC pinning — TDD
 
-- [ ] 3.1 (RED) Write a failing unit test for the Synthea executor (stub/spy the
+- [x] 3.1 (RED) Write a failing unit test for the Synthea executor (stub/spy the
   spawn, do NOT run Java) asserting `TZ=UTC` is set in the child process
   environment, alongside the existing `-e`/`-r`/`-s`/`-cs`/`--generate.thread_count=1`
   and recipe-sourced export toggles
-- [ ] 3.2 (RED) Confirm it fails for the right reason (`TZ` not set)
-- [ ] 3.3 (GREEN) In `benchmark/tools/executors/synthea.js`, set `TZ=UTC` in the
+- [x] 3.2 (RED) Confirm it fails for the right reason (`TZ` not set)
+- [x] 3.3 (GREEN) In `benchmark/tools/executors/synthea.js`, set `TZ=UTC` in the
   executor's process environment; confirm the test passes
 
 ## 4. Materializer identity-keyed layout (no hash) — TDD
