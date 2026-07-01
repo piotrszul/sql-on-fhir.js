@@ -23,18 +23,22 @@ test('checkfileFor resolves the sibling checkfile by benchmark file basename', (
   expect(checkfileFor('/bench/clinical-flat.json')).toBe('/bench/clinical-flat.check.json')
 })
 
-test('recipeOf strips name/version/sizes/defaultSize and keeps recipe params', () => {
+test('recipeOf strips name/version/sizes/defaultSize/syntheaVersion and keeps recipe params', () => {
   const dataset = {
     name: 'd',
     kind: 'synthea',
     version: '1',
+    syntheaVersion: '3.2.0',
     resources: ['Condition'],
     params: { seed: 589 },
     sizes: { s: { population: 100 } },
     defaultSize: 's',
   }
   // recipeOf keeps what the executor needs to generate: kind, resources, params.
-  expect(recipeOf(dataset)).toEqual({
+  // syntheaVersion is identity/lock info, NOT a generation input, so it is stripped.
+  const recipe = recipeOf(dataset)
+  expect(recipe.syntheaVersion).toBeUndefined()
+  expect(recipe).toEqual({
     kind: 'synthea',
     resources: ['Condition'],
     params: { seed: 589 },
