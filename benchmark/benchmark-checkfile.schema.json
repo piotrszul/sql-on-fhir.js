@@ -4,7 +4,7 @@
   "title": "SQL on FHIR benchmark checkfile schema",
   "description": "Committed build-time lock/checksum artifact. Home for everything GENERATED about a benchmark's dataset and expected results (as distinct from the authored benchmark file): dataset identity, generator version, per-size resource counts, per-file sha256 checksums, and the per-case per-size result assertions moved out of the benchmark file.",
   "type": "object",
-  "required": ["dataset", "syntheaVersion", "sizes", "assertions"],
+  "required": ["dataset", "sizes", "assertions"],
   "properties": {
     "dataset": {
       "type": "object",
@@ -15,7 +15,7 @@
     },
     "syntheaVersion": {
       "type": "string",
-      "description": "The generator version actually used to produce the locked data."
+      "description": "Optional generator version actually used to produce the locked data. Present for synthea-generated datasets; a non-synthea dataset may omit it."
     },
     "sizes": {
       "type": "object",

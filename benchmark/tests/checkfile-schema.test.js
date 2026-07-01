@@ -32,10 +32,10 @@ test('a checkfile missing the dataset identity is rejected', () => {
   expect(validate(bad)).toBe(false)
 })
 
-test('a checkfile missing syntheaVersion is rejected', () => {
-  const bad = structuredClone(goodCheckfile)
-  delete bad.syntheaVersion
-  expect(validate(bad)).toBe(false)
+test('a checkfile without syntheaVersion is accepted (present only for synthea datasets)', () => {
+  const ok = structuredClone(goodCheckfile)
+  delete ok.syntheaVersion
+  expect(validate(ok)).toBe(true)
 })
 
 test('a checkfile missing sizes is rejected', () => {
