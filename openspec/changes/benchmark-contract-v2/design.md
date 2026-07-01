@@ -211,13 +211,14 @@ Proposed shape:
     "m": { "resourceCounts": { … }, "files": { … } }
   },
   "assertions": {
-    "condition flat":        { "s": 0, "m": 0 },
-    "observation components":{ "s": 0, "m": 0 }
+    "condition-flat":         { "s": 0, "m": 0 },
+    "observation-components": { "s": 0, "m": 0 }
   }
 }
 ```
 
-`assertions` is keyed by case title (the same key `results` uses in the report),
+`assertions` is keyed by case `id` (the same key the report's per-case results
+reference — see D-D.6),
 then by size, to the expected output row count. Counts are placeholders here —
 the numbers are produced by the one-time re-bless in the implementation phase, not
 invented in authoring.
@@ -230,6 +231,14 @@ asks for: authored intent in the benchmark file, generated facts in the
 checkfile.
 
 **D-D.5 — Runner locates by identity, blesses the checkfile.** See D-E.
+
+**D-D.6 — Cases carry a stable `id` (resolved at Gate A).** Each case in the
+benchmark file carries a stable `id` (short, unique within the file), distinct
+from its free-text `title`. The checkfile's `assertions` and the report's
+per-case results both key on `id`, not `title`, so an author can reword a title
+without orphaning its blessed assertion. `id` is authored intent (it lives in the
+benchmark file); `title` is a human label. Chosen over title-keying, which was
+fragile: any title edit silently detached the assertion.
 
 ### D-E. Runner: identity, not hash (#6, rewrite of the old requirement)
 
@@ -293,11 +302,13 @@ restriction is written now.
 These are concrete, defensible proposals for the human to approve or adjust at
 Gate A. Each is flagged "proposed, confirm at review."
 
-- **Minimum sample count: `>= 7`** (proposed). Small enough to keep a full
+- **Minimum sample count: `>= 7`, ADVISORY (resolved at Gate A).** Small enough to keep a full
   `end_to_end` conversion suite affordable, large enough that p95 and a stddev/CI
-  are not dominated by a single outlier. The schema enforces `minItems: 7` on
-  `samplesMs`. Rationale: below ~7 samples percentile/CI estimates are noise; a
-  hard floor stops a report claiming statistics from 2 samples.
+  are not dominated by a single outlier. This is prose guidance, NOT a
+  schema-enforced `minItems` floor — the report schema does not reject a report
+  with fewer samples. Rationale: below ~7 samples percentile/CI estimates are
+  noise; but a hard floor would reject legitimately expensive `end_to_end` suites,
+  so the minimum stays advisory.
 
 - **Checkfile location/name: `benchmark/<name>.check.json`** (proposed) — a
   sibling of the benchmark file, one checkfile per benchmark, discoverable by
@@ -340,17 +351,17 @@ Gate A. Each is flagged "proposed, confirm at review."
 - **Checkfile is a new committed artifact to keep in sync** → its writer is the
   bless step and its reader is the runner/verify; drift between it and the data is
   exactly what the checksums detect, so the artifact polices itself.
-- **`minItems: 7` on `samplesMs` could reject legitimately cheap smoke runs** →
-  acceptable; a smoke run is not a benchmark report. Confirm the floor at review.
+- **The `>= 7` sample count is advisory, not schema-enforced** (resolved at Gate
+  A) → a report MAY carry fewer samples without schema rejection; the spec prose
+  steers toward `>= 7`. Weaker guarantee, but does not reject expensive
+  `end_to_end` suites.
 
-## Open Questions (for Gate A)
+## Open Questions (resolved at Gate A)
 
-- Confirm the five finer-point proposals above (sample minimum `>= 7`, checkfile
-  location `benchmark/<name>.check.json`, `environment` shape, per-scenario
-  `sink` values, per-scenario warmup semantics).
-- Confirm `assertions` in the checkfile is keyed by **case title** (matching the
-  report's `results` keys) rather than a stable case id — the benchmark file has
-  no case ids today, only titles.
-- Confirm whether `implementation.variant` should be a free string (proposed) or
-  a constrained enum — free string is more flexible for A/B config labels but
-  cannot be validated.
+- Finer-point proposals: checkfile location `benchmark/<name>.check.json`,
+  `environment` shape, per-scenario `sink` values, and per-scenario warmup
+  semantics are ACCEPTED as proposed. Sample minimum `>= 7` is ACCEPTED but as
+  ADVISORY guidance, not a schema `minItems` floor (see Finer points / Risks).
+- Case identity: RESOLVED — cases carry a stable `id` (D-D.6); the checkfile
+  `assertions` and report per-case results key on `id`, not title.
+- `implementation.variant`: RESOLVED — a free string, as proposed.

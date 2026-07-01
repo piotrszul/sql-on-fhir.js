@@ -12,7 +12,11 @@ AUTHORED INTENT — it pairs one dataset recipe with one or more ViewDefinition
 cases and carries no generated facts. It SHALL declare a `title`, a
 `fhirVersion`, a `dataset` (with `name`, `kind`, `version`, `resources`,
 `sizes`, and `defaultSize`), and a non-empty `cases` array; each case SHALL carry
-a `view` (a ViewDefinition with a `resource`). The dataset `version` is an
+a stable `id` (short, unique within the file, and stable across edits) and a
+`view` (a ViewDefinition with a `resource`). The case `title` is a free-text
+human label that MAY change freely; the `id` is the stable key that the
+checkfile's assertions and the report's per-case results reference, so it MUST
+NOT change casually. The dataset `version` is an
 explicit, human-maintained identity tag that expresses INTENT to change the data:
 an author bumps it deliberately when the recipe should re-generate. A case SHALL
 NOT carry a per-size `expectCount` map — the expected output row counts are
@@ -44,6 +48,13 @@ contract, which SHALL reject unknown top-level properties (including a stray
 
 - **WHEN** a benchmark file carries a property the schema does not define
 - **THEN** schema validation fails
+
+#### Scenario: Case declares a stable id
+
+- **WHEN** a benchmark file's cases are inspected
+- **THEN** each case declares an `id` unique within the file and distinct from its
+  free-text `title`, and that `id` is the key the checkfile assertions and report
+  results reference
 
 ### Requirement: Size, defaultSize, and group consistency
 

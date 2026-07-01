@@ -16,9 +16,10 @@ that actually runs the work; `implementation.binding` (`{ name, version }`,
 OPTIONAL) is a language wrapper sharing that same engine (a Python wrapper over a
 JVM engine is a binding, not a distinct engine); `implementation.variant`
 (string, OPTIONAL) is a config/mode discriminator. Each result SHALL declare its
-`size` and a `cases` array; each case SHALL declare a `status` that is one of
-`ok`, `count_mismatch`, `generation_error`, or `execution_error`, and MAY declare
-`inputRows`, `outputRows`, `samplesMs`, `stats`, and `phaseSamplesMs`.
+`size` and a `cases` array; each case SHALL declare its `id` (matching the
+benchmark file's case `id` and the checkfile assertion key) and a `status` that is
+one of `ok`, `count_mismatch`, `generation_error`, or `execution_error`, and MAY
+declare `inputRows`, `outputRows`, `samplesMs`, `stats`, and `phaseSamplesMs`.
 
 #### Scenario: Well-formed report is accepted
 
@@ -38,6 +39,13 @@ JVM engine is a binding, not a distinct engine); `implementation.variant`
 
 - **WHEN** a case `status` is a value outside the defined taxonomy
 - **THEN** schema validation fails
+
+#### Scenario: Case result carries its id
+
+- **WHEN** a report's per-case result is inspected
+- **THEN** it declares the `id` of the benchmark case it corresponds to, matching
+  the checkfile assertion key, so results tie to assertions by a stable id rather
+  than a mutable title
 
 ### Requirement: Reverse-ETL measurement model
 
@@ -125,8 +133,10 @@ recordable.
 A case's `stats` SHALL conform to a defined basic-statistics shape rather than a
 free-form object: `mean`, `min`, `max`, `stddev`, `p50`, and `p95` (all in the
 same time unit as `samplesMs`), plus an OPTIONAL `ci95`. `stats` SHALL be
-reported alongside the raw `samplesMs`, and the report SHALL carry enough samples
-(a minimum sample count) for the statistics to be meaningful. The shape SHALL be
+reported alongside the raw `samplesMs`. The report SHOULD carry at least a
+RECOMMENDED minimum of 7 samples for the statistics to be meaningful; this minimum
+is ADVISORY guidance and SHALL NOT be enforced as a hard `minItems` floor in the
+report schema. The shape SHALL be
 projectable onto a JMH `primaryMetric` (score = `mean`, scoreError from `ci95`,
 scorePercentiles from `p50`/`p95`/`min`/`max`, rawData = `samplesMs`).
 `inputRows` SHALL be defined precisely as the number of input resources OF THE

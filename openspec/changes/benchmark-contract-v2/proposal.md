@@ -87,7 +87,8 @@ vocabulary:
   (`table`/`memory`), never a lazy count.
 
 BOTH scenarios collect enough measured samples for meaningful statistics
-(proposed minimum: `>= 7`), report the raw individual `samplesMs`, and BOTH map
+(recommended minimum `>= 7`, advisory — not schema-enforced), report the raw
+individual `samplesMs`, and BOTH map
 to JMH **SingleShotTime (`ss`)** — we measure time-per-operation on a
 relatively long-running operation, never ops-per-time-unit throughput (never
 `avgt`).
@@ -186,6 +187,9 @@ counts — so any report is traceable to the exact suite and exact data.
 - The benchmark file validates against the updated `benchmark.schema.json` with
   NO `expectCount` anywhere and an explicit dataset `version`; a file that still
   carries inline `expectCount` is rejected.
+- Each case declares a stable `id`; the checkfile `assertions` and the report's
+  per-case results key on that `id`, not the free-text `title`; a case without an
+  `id` is rejected.
 - No code in any language derives a content hash to locate data; the materializer
   writes and the runner reads `data/<name>/<version>/<size>/`.
 - Materializing the same recipe in two different timezones produces
@@ -208,8 +212,8 @@ counts — so any report is traceable to the exact suite and exact data.
 ## Impact
 
 - `benchmark/benchmark.schema.json`: dataset gains a required explicit `version`
-  semantics tag; `expectCount` removed from cases; document authored-intent-only
-  shape.
+  semantics tag; each case gains a required stable `id`; `expectCount` removed from
+  cases; document authored-intent-only shape.
 - `benchmark/benchmark-report.schema.json`: restructure `implementation`; add
   `measurement.scenario`; replace `stats` with the defined shape; add provenance
   (benchmark + dataset identity, dataset resource counts).

@@ -68,14 +68,14 @@ detected.
 
 The checkfile SHALL carry the result assertions — the expected output row count
 for each case at each size — previously held inline in the benchmark file's
-`expectCount`. Assertions SHALL be keyed by the case's title (the same key the
-report's `results` uses) and then by size. The benchmark file SHALL NOT carry
+`expectCount`. Assertions SHALL be keyed by the case's stable `id` (the same key the
+report's per-case results reference) and then by size. The benchmark file SHALL NOT carry
 these assertions; they live only in the checkfile.
 
 #### Scenario: Assertions are keyed by case and size
 
 - **WHEN** a checkfile is inspected
-- **THEN** its `assertions` map contains, for each case title, an expected output
+- **THEN** its `assertions` map contains, for each case `id`, an expected output
   row count per declared size
 
 #### Scenario: Assertions have moved out of the benchmark file

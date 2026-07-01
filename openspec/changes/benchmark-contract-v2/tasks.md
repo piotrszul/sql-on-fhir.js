@@ -6,25 +6,28 @@ precedes its green step.
 
 ## 0. Gate A — design sign-off (blocks all below)
 
-- [ ] 0.1 Human confirms the finer-point proposals in `design.md`: sample minimum
-  `>= 7`, checkfile location `benchmark/<name>.check.json`, `environment` shape,
-  per-scenario `sink` values, per-scenario warmup semantics, `assertions` keyed
-  by case title, and `implementation.variant` as a free string
+- [x] 0.1 Gate A RESOLVED: checkfile location `benchmark/<name>.check.json`,
+  `environment` shape, per-scenario `sink` values, and per-scenario warmup
+  semantics ACCEPTED as proposed; sample minimum `>= 7` ACCEPTED as ADVISORY (not
+  a schema `minItems` floor); cases carry a stable `id` and both checkfile
+  `assertions` and report results key on `id` (not title);
+  `implementation.variant` is a free string
 - [ ] 0.2 Human approves the one-time re-bless under `TZ=UTC` (counts will move
   off the Wave 0 AEST values and relocate into the checkfile)
 
 ## 1. Schemas (public contracts) — TDD
 
 - [ ] 1.1 (RED) Write failing schema-validation tests: a benchmark file with
-  inline `expectCount` is REJECTED; a benchmark file with an explicit dataset
-  `version` and no `expectCount` is ACCEPTED
+  inline `expectCount` is REJECTED; a case without a stable `id` is REJECTED; a
+  benchmark file with an explicit dataset `version`, cases each carrying an `id`,
+  and no `expectCount` is ACCEPTED
 - [ ] 1.2 (RED) Write failing schema-validation tests for
   `benchmark-report.schema.json`: a report with the structured `implementation`
   (required `engine`, optional `binding`/`variant`) is ACCEPTED; one with the old
   flat `{ name, version }` is REJECTED; `measurement.scenario` outside
   `{ end_to_end, preloaded_repeated }` is REJECTED; a free-form `stats` missing
-  the defined fields is REJECTED; `samplesMs` with fewer than the minimum samples
-  is REJECTED
+  the defined fields is REJECTED (the `>= 7` sample minimum is ADVISORY prose, NOT
+  a schema `minItems` floor, so a low sample count is NOT schema-rejected)
 - [ ] 1.3 (RED) Write failing schema-validation tests for the NEW
   `benchmark-checkfile.schema.json`: a well-formed checkfile (dataset identity,
   `syntheaVersion`, per-size `resourceCounts`, per-file `sha256`, `assertions`) is
@@ -32,11 +35,13 @@ precedes its green step.
 - [ ] 1.4 (RED) Confirm 1.1–1.3 fail for the right reason (schemas not yet
   updated / checkfile schema absent) — the mandatory red step
 - [ ] 1.5 (GREEN) Update `benchmark/benchmark.schema.json`: remove `expectCount`
-  from cases; keep dataset `version` required; keep `additionalProperties: false`
+  from cases; add a required stable case `id`; keep dataset `version` required;
+  keep `additionalProperties: false`
 - [ ] 1.6 (GREEN) Restructure `implementation`, add `measurement.scenario`,
-  replace `stats` with the defined shape, add benchmark + dataset provenance and
-  dataset resource counts in `benchmark/benchmark-report.schema.json`; enforce the
-  `samplesMs` minimum
+  replace `stats` with the defined shape, add benchmark + dataset provenance,
+  dataset resource counts, and a required per-case `id` in
+  `benchmark/benchmark-report.schema.json`; do NOT add a `minItems` floor on
+  `samplesMs` (the `>= 7` minimum is advisory)
 - [ ] 1.7 (GREEN) Author the NEW `benchmark/benchmark-checkfile.schema.json`
   public contract per `benchmark-checkfile-format`
 - [ ] 1.8 (GREEN) Confirm 1.1–1.3 now pass
@@ -82,7 +87,7 @@ precedes its green step.
   resource count; `forEach` ⇒ total collection-entry count; `where` ⇒ filtered
   count)
 - [ ] 5.2 (RED) Write failing tests for the checkfile READER used by the runner:
-  it reads assertions by case title + size; strict mode compares per-file sha256
+  it reads assertions by case `id` + size; strict mode compares per-file sha256
   to the checkfile and surfaces drift
 - [ ] 5.3 (RED) Confirm 5.1–5.2 fail for the right reason (no writer/reader yet)
 - [ ] 5.4 (GREEN) Implement the checkfile writer in the benchmark build (bless
@@ -104,8 +109,9 @@ precedes its green step.
 
 - [ ] 7.1 (RED) Write failing tests: the reference runner emits a report with the
   structured `implementation` (engine required), a `measurement.scenario`, the
-  defined `stats` shape computed from `samplesMs` (>= the minimum), correct
-  `inputRows` (count of the case's `view.resource` type), and benchmark + dataset
+  a per-case `id`, the defined `stats` shape computed from `samplesMs` (advisory
+  `>= 7`), correct `inputRows` (count of the case's `view.resource` type), and
+  benchmark + dataset
   provenance and resource counts
 - [ ] 7.2 (RED) Confirm the tests fail for the right reason
 - [ ] 7.3 (GREEN) Update the runner's report emission; confirm the tests pass and
@@ -113,8 +119,9 @@ precedes its green step.
 
 ## 8. Move expectCount out of the benchmark file (data migration)
 
-- [ ] 8.1 Remove the inline `expectCount` maps from `benchmark/clinical-flat.json`
-  (they relocate to the checkfile in §9)
+- [ ] 8.1 In `benchmark/clinical-flat.json`: add a stable `id` to each case (e.g.
+  `condition-flat`, `observation-components`) and remove the inline `expectCount`
+  maps (which relocate to the checkfile in §9)
 - [ ] 8.2 Confirm the stripped benchmark file validates against the updated
   `benchmark.schema.json`
 
