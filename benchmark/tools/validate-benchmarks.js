@@ -25,6 +25,10 @@ export function validateBenchmark(file) {
   // false / wall-clock), yielding the wrong dataset with no error. The booleans are
   // guarded on `== null` (not falsy) so an explicit `false` is a valid declared value.
   if (ds.kind === 'synthea') {
+    // The generator version is echoed into the checkfile's syntheaVersion for the
+    // lock, and is distinct from the identity `version`.
+    if (ds.syntheaVersion == null)
+      errors.push('synthea dataset must declare syntheaVersion (echoed into the checkfile lock)')
     const requiredParams = {
       endTime: 'pinned simulation end date',
       yearsOfHistory: 'exported years of history',

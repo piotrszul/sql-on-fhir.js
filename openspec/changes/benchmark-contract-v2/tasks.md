@@ -119,10 +119,10 @@ precedes its green step.
 
 ## 8. Move expectCount out of the benchmark file (data migration)
 
-- [ ] 8.1 In `benchmark/clinical-flat.json`: add a stable `id` to each case (e.g.
+- [x] 8.1 In `benchmark/clinical-flat.json`: add a stable `id` to each case (e.g.
   `condition-flat`, `observation-components`) and remove the inline `expectCount`
   maps (which relocate to the checkfile in §9)
-- [ ] 8.2 Confirm the stripped benchmark file validates against the updated
+- [x] 8.2 Confirm the stripped benchmark file validates against the updated
   `benchmark.schema.json`
 
 ## 9. One-time re-bless under TZ=UTC (implementation-phase, run once)

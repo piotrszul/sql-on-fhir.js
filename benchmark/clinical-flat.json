@@ -10,7 +10,8 @@
   "dataset": {
     "name": "synthea-clinical",
     "kind": "synthea",
-    "version": "3.2.0",
+    "version": "1",
+    "syntheaVersion": "3.2.0",
     "resources": ["Condition", "Observation"],
     "params": {
       "seed": 589,
@@ -34,6 +35,7 @@
   },
   "cases": [
     {
+      "id": "condition-flat",
       "title": "condition flat",
       "description": "One row per Condition with code and clinical status.",
       "view": {
@@ -59,13 +61,10 @@
             ]
           }
         ]
-      },
-      "expectCount": {
-        "s": 6406,
-        "m": 48483
       }
     },
     {
+      "id": "observation-components",
       "title": "observation components",
       "description": "One row per Observation component (forEach over component).",
       "view": {
@@ -91,10 +90,6 @@
             ]
           }
         ]
-      },
-      "expectCount": {
-        "s": 4366,
-        "m": 39336
       }
     }
   ]

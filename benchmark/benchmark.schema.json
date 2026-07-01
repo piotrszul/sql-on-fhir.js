@@ -29,6 +29,10 @@
           "type": "string",
           "description": "Explicit, human-maintained dataset identity tag expressing INTENT to change the data; the second on-disk dir segment. Bumped deliberately when the recipe should re-generate. NOT a derived content hash."
         },
+        "syntheaVersion": {
+          "type": "string",
+          "description": "The generator version pinned for this recipe, echoed into the checkfile's syntheaVersion for the lock. Distinct from the identity `version`."
+        },
         "resources": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
         "params": { "type": "object" },
         "sizes": {

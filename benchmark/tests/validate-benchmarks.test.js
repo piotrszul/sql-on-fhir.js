@@ -7,7 +7,8 @@ const base = () => ({
   dataset: {
     name: 'd',
     kind: 'synthea',
-    version: '3.2.0',
+    version: '1',
+    syntheaVersion: '3.2.0',
     resources: ['Condition'],
     params: {
       endTime: 20250101,
@@ -49,6 +50,12 @@ test('reference functions are allowed (single-resource is a measurement-setup pr
     },
   ]
   expect(validateBenchmark(f)).toEqual([])
+})
+
+test('a synthea recipe missing syntheaVersion is rejected (needed to echo into the checkfile)', () => {
+  const f = base()
+  delete f.dataset.syntheaVersion
+  expect(validateBenchmark(f).some((e) => e.includes('syntheaVersion'))).toBe(true)
 })
 
 test('a synthea recipe missing params.endTime is rejected', () => {
