@@ -32,9 +32,10 @@ The three problems this change fixes:
 - **The required `stats` set carries noisy percentiles (#5, #18.3).** Contract v2
   required `stats: {mean, min, max, stddev, p50, p95}` (+ optional `ci95`). At
   the small SingleShotTime sample counts these benchmarks use (advisory `>= 7`),
-  `p50`/`p95` carry little signal and are noisy. The required set should be the
-  stable summary; richer percentiles stay optional; the raw `samplesMs` stay
-  required so any consumer can recompute whatever percentiles it wants.
+  `p50`/`p95` carry little signal and are noisy. The stats set should be the
+  stable summary only; `p95`/`ci95` are removed entirely (the schema rejects any
+  extra key); the raw `samplesMs` stay required so any consumer can recompute
+  whatever percentiles it wants.
 
 ## What Changes
 
@@ -71,14 +72,16 @@ prose (a SHALL), not a schema change.
 
 ### 3. Reduce the required `stats` set (#5, #18.3) — report format + report schema
 
-Change the REQUIRED `stats` set from `{mean, min, max, stddev, p50, p95}` to
+Change the `stats` set from `{mean, min, max, stddev, p50, p95}` to EXACTLY
 `{mean, stddev, min, max, median}`. `median` REPLACES `p50` in the required set
-(a clearer name for the required middle value). Richer percentiles (e.g. `p95`)
-and `ci95` become OPTIONAL. Raw `samplesMs` stays REQUIRED, so any consumer
-(including the #11 JMH export) can recompute whatever percentiles it wants. The
-JMH projection updates accordingly: `scorePercentiles` derive from `median` plus
-any optional percentiles plus `min`/`max`, and a consumer MAY recompute from
-`samplesMs`.
+(a clearer name for the required middle value). `p95` and `ci95` are REMOVED
+entirely — the schema sets `additionalProperties` false, so a `stats` carrying
+either (or any other extra key) is rejected. Raw `samplesMs` stays REQUIRED, so
+any consumer (including the #11 JMH export) can recompute whatever percentiles it
+wants. The JMH projection updates accordingly: `scorePercentiles` derive from
+`median` plus `min`/`max`, richer percentiles are recomputed from `samplesMs`, and
+`scoreError` is recomputed from `samplesMs` rather than read from a precomputed
+`ci95`.
 
 ### 4. Re-key `report.results` by the stable suite `name` — report format
 
@@ -100,9 +103,9 @@ made the map key mutable. The reference runner keys `results` by suite `name`.
   requires both.
 - `benchmark-report-format`: both measurement scenarios use `sink: csv` (scenario
   distinction is purely the load boundary), `report.benchmark.{name,version}` is
-  sourced from the authored suite identity, and the required `stats` set becomes
-  `{mean, stddev, min, max, median}` with richer percentiles / `ci95` optional
-  and the JMH projection updated.
+  sourced from the authored suite identity, and the `stats` set becomes EXACTLY
+  `{mean, stddev, min, max, median}` with `p95`/`ci95` removed (extra keys
+  rejected) and the JMH projection updated.
 
 ## Acceptance Criteria
 
@@ -117,10 +120,10 @@ made the map key mutable. The reference runner keys `results` by suite `name`.
 - Both `end_to_end` and `preloaded_repeated` are described as (and recommended to)
   use `sink: csv`; the scenario distinction is purely whether `load` is inside the
   timed region. The `sink` enum is unchanged.
-- A case's required `stats` shape is `{mean, stddev, min, max, median}`; `p95`
-  and `ci95` are OPTIONAL; `samplesMs` stays REQUIRED. A report whose `stats`
-  omits `median` (or another required field) is rejected; one that omits `p95` is
-  accepted.
+- A case's `stats` shape is EXACTLY `{mean, stddev, min, max, median}`; `p95`
+  and `ci95` are REMOVED; `samplesMs` stays REQUIRED. A report whose `stats`
+  omits `median` (or another required field) is rejected; one that carries `p95`,
+  `ci95`, or any other extra key is also rejected (`additionalProperties` false).
 - No Synthea re-bless is needed: this change touches the contract/report shape
   only; the checkfile and the materialized data are untouched.
 - `bun test`, `bun run validate`, `bun run check-fmt`, and
@@ -131,9 +134,9 @@ made the map key mutable. The reference runner keys `results` by suite `name`.
 - `benchmark/benchmark.schema.json`: dataset already has `name`/`version`; the
   top-level suite gains a required stable `name` and a required authored
   `version` (mirroring `dataset.name`/`dataset.version`) — implementation phase.
-- `benchmark/benchmark-report.schema.json`: `stats` required set becomes
-  `{mean, stddev, min, max, median}`; `p95` moves from required to optional;
-  `ci95` stays optional; `samplesMs` stays required. The `sink` enum is
+- `benchmark/benchmark-report.schema.json`: `stats` set becomes EXACTLY
+  `{mean, stddev, min, max, median}`; `p95` and `ci95` are removed as properties
+  and `additionalProperties` stays false; `samplesMs` stays required. The `sink` enum is
   UNCHANGED (the per-scenario `csv` guidance is spec prose, not schema) —
   implementation phase.
 - The benchmark invariant validator: require suite `name` + `version` —

@@ -169,36 +169,36 @@ sources from.
 ### Requirement: Defined statistics and inputRows
 
 A case's `stats` SHALL conform to a defined basic-statistics shape rather than a
-free-form object: the REQUIRED fields are `mean`, `stddev`, `min`, `max`, and
+free-form object: the fields are EXACTLY `mean`, `stddev`, `min`, `max`, and
 `median` (all in the same time unit as `samplesMs`), where `median` is the middle
-value (the statistic formerly required as `p50`, renamed for clarity). Richer
-percentiles (e.g. `p95`) and `ci95` are OPTIONAL. `stats` SHALL be reported
-alongside the raw `samplesMs`, which SHALL remain REQUIRED so that any consumer —
-including the JMH export — can recompute whatever percentiles it wants from the
-raw data. The report SHOULD carry at least a RECOMMENDED minimum of 7 samples for
-the statistics to be meaningful; this minimum is ADVISORY guidance and SHALL NOT
-be enforced as a hard `minItems` floor in the report schema. The shape SHALL be
-projectable onto a JMH `primaryMetric` (score = `mean`, scoreError from `ci95`
-when present, scorePercentiles from `median` plus any optional percentiles present
-plus `min`/`max` — with a consumer free to recompute richer percentiles from
-`samplesMs` — and rawData = `samplesMs`). `inputRows` SHALL be defined precisely
-as the number of input resources OF THE CASE'S `view.resource` TYPE that were
-loaded for that (case, size) — the denominator for throughput/normalization —
+value (the statistic formerly required as `p50`, renamed for clarity). These five
+are the only permitted fields — the schema sets `additionalProperties` false, so a
+`stats` carrying any other key (for example `p95` or `ci95`) is rejected. `stats`
+SHALL be reported alongside the raw `samplesMs`, which SHALL remain REQUIRED so
+that any consumer — including the JMH export — can recompute whatever percentiles
+it wants from the raw data. The report SHOULD carry at least a RECOMMENDED minimum
+of 7 samples for the statistics to be meaningful; this minimum is ADVISORY guidance
+and SHALL NOT be enforced as a hard `minItems` floor in the report schema. The
+shape SHALL be projectable onto a JMH `primaryMetric` (score = `mean`,
+scorePercentiles from `median` plus `min`/`max`, and rawData = `samplesMs`);
+`scoreError` is NOT a precomputed field — a consumer recomputes it, along with any
+richer percentiles, from the raw `samplesMs`. `inputRows` SHALL be defined
+precisely as the number of input resources OF THE CASE'S `view.resource` TYPE that
+were loaded for that (case, size) — the denominator for throughput/normalization —
 distinct from `outputRows` and from the total resource count across all types.
 
 #### Scenario: stats has the defined shape
 
 - **WHEN** a case reports `stats`
-- **THEN** it contains the required `mean`, `stddev`, `min`, `max`, and `median`,
-  and MAY additionally carry optional richer percentiles (e.g. `p95`) and `ci95`,
-  not an arbitrary free-form object
+- **THEN** it contains exactly `mean`, `stddev`, `min`, `max`, and `median`, and no
+  other field, not an arbitrary free-form object
 
-#### Scenario: Required median, optional richer percentiles
+#### Scenario: Required fields enforced; any extra field rejected
 
 - **WHEN** a case's `stats` omits `median` (or another required field)
-- **THEN** schema validation fails; and a `stats` that carries the required fields
-  but omits `p95` and `ci95` is accepted, because richer percentiles and the
-  confidence interval are OPTIONAL
+- **THEN** schema validation fails; and a `stats` that carries any field beyond the
+  five (for example `p95` or `ci95`) is also rejected, because the shape is exactly
+  `{mean, stddev, min, max, median}`
 
 #### Scenario: Raw samples remain available for recomputation
 
@@ -209,9 +209,10 @@ distinct from `outputRows` and from the total resource count across all types.
 #### Scenario: stats feeds a JMH primaryMetric
 
 - **WHEN** the statistics are exported to a JMH `primaryMetric`
-- **THEN** `score` maps from `mean`, `scoreError` from `ci95` (when present),
-  `scorePercentiles` from `median` plus any optional percentiles plus `min`/`max`
-  (or recomputed from `samplesMs`), and `rawData` from `samplesMs`
+- **THEN** `score` maps from `mean`, `scorePercentiles` from `median` plus
+  `min`/`max` (with richer percentiles recomputed from `samplesMs`), and `rawData`
+  from `samplesMs`; `scoreError` is recomputed from `samplesMs` rather than read
+  from a precomputed field
 
 #### Scenario: inputRows counts the case's resource type
 

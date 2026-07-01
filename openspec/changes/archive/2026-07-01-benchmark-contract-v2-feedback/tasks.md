@@ -14,8 +14,8 @@ per-file sha256 checksums are UNTOUCHED. No count moves, no `--record` run.
   `name` + `version` sourcing `report.benchmark.{name,version}` (with
   `report.results` keying explicitly out of scope); (2) both scenarios use
   `sink: csv`, scenario distinction is purely the load boundary; (3) required
-  `stats` becomes `{mean, stddev, min, max, median}` with `p95`/`ci95` optional
-  and `samplesMs` still required
+  `stats` becomes exactly `{mean, stddev, min, max, median}` with `p95`/`ci95`
+  removed (extra keys rejected) and `samplesMs` still required
 
 ## 1. Suite schema — authored suite identity (public contract) — TDD
 
@@ -35,17 +35,18 @@ per-file sha256 checksums are UNTOUCHED. No count moves, no `--record` run.
 - [x] 2.1 (RED) Write failing schema-validation tests for
   `benchmark-report.schema.json`: a case whose `stats` carries
   `{mean, stddev, min, max, median}` is ACCEPTED; a `stats` that omits `median`
-  (or another required field) is REJECTED; a `stats` that carries the required
-  fields but omits `p95` and `ci95` is ACCEPTED (both OPTIONAL); a report that
-  omits `samplesMs` is REJECTED (raw samples stay required); the advisory `>= 7`
+  (or another required field) is REJECTED; a `stats` that carries any field beyond
+  the five (for example `p95` or `ci95`) is REJECTED (extra keys not permitted); a
+  report that omits `samplesMs` is REJECTED (raw samples stay required); the advisory `>= 7`
   minimum is NOT enforced as a `minItems` floor (a low sample count is NOT
   schema-rejected)
 - [x] 2.2 (RED) Confirm 2.1 fails for the right reason (schema still requires
   `p50`/`p95` and does not require `median`)
 - [x] 2.3 (GREEN) Update `benchmark/benchmark-report.schema.json`: change the
-  `stats` required set to `{mean, stddev, min, max, median}`; add `median` as a
-  number property; move `p95` from required to an OPTIONAL property; keep `ci95`
-  optional; keep `samplesMs` required with no `minItems` floor; keep the `sink`
+  `stats` set to exactly `{mean, stddev, min, max, median}`; add `median` as a
+  number property; remove the `p95` and `ci95` properties; keep
+  `additionalProperties` false so extra keys are rejected; keep `samplesMs`
+  required with no `minItems` floor; keep the `sink`
   enum UNCHANGED (`{table, csv, memory, other}` — the per-scenario `csv` guidance
   is spec prose, not schema); confirm 2.1 passes
 

@@ -95,21 +95,14 @@
                 },
                 "stats": {
                   "type": "object",
-                  "description": "Defined basic-statistics shape projectable onto a JMH primaryMetric (score=mean, scoreError from ci95, scorePercentiles from median plus any optional percentiles plus min/max, rawData=samplesMs). median replaces the former required p50; richer percentiles (e.g. p95) and ci95 are OPTIONAL.",
+                  "description": "Defined basic-statistics shape, exactly {mean, stddev, min, max, median} — no other keys are permitted (additionalProperties is false, so p95, ci95 or any extra property is rejected). median replaces the former required p50. Projectable onto a JMH primaryMetric: score=mean, scorePercentiles from median plus min/max, rawData=samplesMs; a consumer recomputes any richer percentiles AND the confidence interval / scoreError from the raw samplesMs, which remain in the report.",
                   "required": ["mean", "stddev", "min", "max", "median"],
                   "properties": {
                     "mean": { "type": "number" },
                     "min": { "type": "number" },
                     "max": { "type": "number" },
                     "stddev": { "type": "number" },
-                    "median": { "type": "number" },
-                    "p95": { "type": "number" },
-                    "ci95": {
-                      "type": "object",
-                      "required": ["lo", "hi"],
-                      "properties": { "lo": { "type": "number" }, "hi": { "type": "number" } },
-                      "additionalProperties": false
-                    }
+                    "median": { "type": "number" }
                   },
                   "additionalProperties": false
                 },

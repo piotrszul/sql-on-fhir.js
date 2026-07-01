@@ -39,11 +39,12 @@ function percentile(sorted, p) {
   return sorted[lo] + (sorted[hi] - sorted[lo]) * (rank - lo)
 }
 
-// The defined basic-statistics REQUIRED shape (benchmark-report-format):
+// The defined basic-statistics shape (benchmark-report-format) is EXACTLY
 // mean/stddev/min/max/median, all in the same unit as samplesMs. `median` is the
-// required middle value (formerly required as `p50`). Richer percentiles (e.g.
-// p95) and ci95 are OPTIONAL and are not emitted here; any consumer can recompute
-// them from the raw samplesMs the report always carries.
+// required middle value (formerly required as `p50`). p95, ci95 and any other key
+// are not part of the contract (the report schema rejects extra keys); a consumer
+// recomputes richer percentiles and the confidence interval from the raw
+// samplesMs the report always carries.
 export function statsOf(samplesMs) {
   const n = samplesMs.length
   const min = Math.min(...samplesMs)

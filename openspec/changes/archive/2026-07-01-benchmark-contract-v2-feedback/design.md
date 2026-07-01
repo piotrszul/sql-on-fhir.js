@@ -22,8 +22,8 @@ The touched capabilities and schema:
   tag.
 - Make the two measurement scenarios directly comparable by fixing the sink to
   `csv` for both, so they differ ONLY by whether load is timed.
-- Trim the required `stats` set to the stable summary and keep richer percentiles
-  optional, while keeping the raw `samplesMs` required.
+- Trim the `stats` set to the stable summary only, removing `p95`/`ci95`
+  entirely, while keeping the raw `samplesMs` required.
 
 **Non-Goals**
 
@@ -93,24 +93,23 @@ spec violation, not a schema-validation failure. Warmup semantics are unchanged
 from contract v2 (`end_to_end`: no dataset warmup; `preloaded_repeated`: query
 warmup iterations discarded).
 
-### D-3. Reduce the required `stats` set; keep `samplesMs` (#5, #18.3)
+### D-3. Reduce the `stats` set to exactly five fields; keep `samplesMs` (#5, #18.3)
 
 Contract v2 required `stats: {mean, min, max, stddev, p50, p95}` plus optional
 `ci95`. At the small SingleShotTime sample counts (advisory `>= 7`), `p50`/`p95`
-are noisy and carry little signal. Change the REQUIRED set to:
+are noisy and carry little signal. Change the set to EXACTLY:
 
 ```json
 "stats": {
-  "mean": 0.0, "stddev": 0.0, "min": 0.0, "max": 0.0, "median": 0.0,
-  "p95": 0.0,                        // OPTIONAL
-  "ci95": { "lo": 0.0, "hi": 0.0 }   // OPTIONAL
+  "mean": 0.0, "stddev": 0.0, "min": 0.0, "max": 0.0, "median": 0.0
 }
 ```
 
 - `median` REPLACES `p50` in the required set — a clearer name for the required
   middle value. (`p50` and `median` are the same statistic; the required field is
   now named `median`.)
-- Richer percentiles (`p95`, and any others) and `ci95` become OPTIONAL.
+- `p95` and `ci95` are REMOVED entirely. `stats` sets `additionalProperties`
+  false, so a `stats` carrying `p95`, `ci95`, or any other extra key is rejected.
 - Raw `samplesMs` stays REQUIRED (unchanged), so any consumer — including the #11
   JMH export — can recompute whatever percentiles it wants from the raw data.
 
@@ -119,17 +118,18 @@ Updated JMH `primaryMetric` projection:
 | JMH primaryMetric field | source |
 |-------------------------|--------|
 | `score` | `stats.mean` |
-| `scoreError` | half-width of `stats.ci95` (if present, else omitted) |
-| `scorePercentiles` | `{ "50.0": median, "100.0": max, "0.0": min }` plus any optional percentiles present (e.g. `"95.0": p95`); a consumer MAY recompute richer percentiles from `samplesMs` |
+| `scoreError` | recomputed from `samplesMs` (no precomputed `ci95` in the report) |
+| `scorePercentiles` | `{ "50.0": median, "100.0": max, "0.0": min }`; richer percentiles recomputed from `samplesMs` |
 | `scoreUnit` | `ms/op` (SingleShotTime) |
 | `rawData` | `samplesMs` |
 
 ## Risks / Trade-offs
 
-- **Dropping required `p95`/`p50` loses a precomputed percentile for consumers
-  that relied on it** → mitigated: `samplesMs` stays required, so any percentile
-  is recomputable; and at these sample counts the precomputed percentile was noise
-  anyway. `p95` remains OPTIONAL for producers that still want to publish it.
+- **Dropping `p95`/`p50` (and `ci95`) loses precomputed values for consumers that
+  relied on them** → mitigated: `samplesMs` stays required, so any percentile and
+  the confidence interval are recomputable; and at these sample counts the
+  precomputed values were noise anyway. Producers may not publish `p95`/`ci95`
+  under this contract — the schema rejects them as extra keys.
 - **`sink: csv` for `preloaded_repeated` adds a real file write to every timed
   query sample** → intended: it is precisely the materialization we want inside
   the timed region so the optimizer cannot prune it, and it keeps the two
