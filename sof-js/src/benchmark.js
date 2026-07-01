@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { evaluate } from './index.js'
+import { serializeCsv } from './csv.js'
 
 export function loadResources(ndjsonPath) {
   return readFileSync(ndjsonPath, 'utf8')
@@ -8,18 +9,25 @@ export function loadResources(ndjsonPath) {
     .map((l) => JSON.parse(l))
 }
 
+// The timed region does a FULL extract: it evaluates the view AND serializes the
+// resulting rows to CSV, so the recorded cost genuinely reflects sink: 'csv' and
+// is comparable to a runner that writes real CSV. An optimizer cannot prune the
+// serialization because its output (`csv`) is retained. `outputRows` counts the
+// evaluated rows (serialization does not change the count semantics).
 export function timeEvaluate(view, resources, { warmup, measurement }) {
-  for (let i = 0; i < warmup; i++) evaluate(view, resources)
+  for (let i = 0; i < warmup; i++) serializeCsv(evaluate(view, resources))
   const samplesMs = []
   let outputRows = 0
+  let csv = ''
   for (let i = 0; i < measurement; i++) {
     const t0 = performance.now()
     const rows = evaluate(view, resources)
+    csv = serializeCsv(rows)
     const t1 = performance.now()
     samplesMs.push(t1 - t0)
     outputRows = rows.length
   }
-  return { samplesMs, outputRows }
+  return { samplesMs, outputRows, csv }
 }
 
 function percentile(sorted, p) {
@@ -31,9 +39,12 @@ function percentile(sorted, p) {
   return sorted[lo] + (sorted[hi] - sorted[lo]) * (rank - lo)
 }
 
-// The defined basic-statistics shape (benchmark-report-format): mean/min/max/stddev
-// plus p50/p95, all in the same unit as samplesMs. Shaped to project onto a JMH
-// primaryMetric without recomputation.
+// The defined basic-statistics shape (benchmark-report-format) is EXACTLY
+// mean/stddev/min/max/median, all in the same unit as samplesMs. `median` is the
+// required middle value (formerly required as `p50`). p95, ci95 and any other key
+// are not part of the contract (the report schema rejects extra keys); a consumer
+// recomputes richer percentiles and the confidence interval from the raw
+// samplesMs the report always carries.
 export function statsOf(samplesMs) {
   const n = samplesMs.length
   const min = Math.min(...samplesMs)
@@ -42,5 +53,5 @@ export function statsOf(samplesMs) {
   const variance = n > 1 ? samplesMs.reduce((a, b) => a + (b - mean) ** 2, 0) / (n - 1) : 0
   const stddev = Math.sqrt(variance)
   const sorted = [...samplesMs].sort((a, b) => a - b)
-  return { mean, min, max, stddev, p50: percentile(sorted, 50), p95: percentile(sorted, 95) }
+  return { mean, stddev, min, max, median: percentile(sorted, 50) }
 }

@@ -1,4 +1,6 @@
 {
+  "name": "clinical-flat",
+  "version": "1",
   "title": "clinical-flat",
   "description": "Flatten clustered Synthea clinical resources (Condition, Observation).",
   "group": "synthea-clinical",

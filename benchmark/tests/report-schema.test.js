@@ -26,7 +26,7 @@ const goodReport = {
           inputRows: 10,
           outputRows: 10,
           samplesMs: [1.2, 1.3],
-          stats: { mean: 1.25, min: 1.2, max: 1.3, stddev: 0.05, p50: 1.25, p95: 1.3 },
+          stats: { mean: 1.25, min: 1.2, max: 1.3, stddev: 0.05, median: 1.25 },
         },
       ],
     },
@@ -76,6 +76,53 @@ test('a free-form stats missing the defined fields is rejected', () => {
   const bad = structuredClone(goodReport)
   bad.results['clinical-flat'].cases[0].stats = { avg: 1.2 }
   expect(validate(bad)).toBe(false)
+})
+
+test('stats carrying {mean, stddev, min, max, median} is accepted', () => {
+  const r = structuredClone(goodReport)
+  r.results['clinical-flat'].cases[0].stats = { mean: 1.25, stddev: 0.05, min: 1.2, max: 1.3, median: 1.25 }
+  expect(validate(r)).toBe(true)
+})
+
+test('stats omitting median (a required field) is rejected', () => {
+  const bad = structuredClone(goodReport)
+  bad.results['clinical-flat'].cases[0].stats = { mean: 1.25, stddev: 0.05, min: 1.2, max: 1.3 }
+  expect(validate(bad)).toBe(false)
+})
+
+test('stats is exactly {mean, stddev, min, max, median}; extra keys are rejected', () => {
+  const r = structuredClone(goodReport)
+  const c = r.results['clinical-flat'].cases[0]
+  c.stats = { mean: 1.25, stddev: 0.05, min: 1.2, max: 1.3, median: 1.25 }
+  expect(c.stats).not.toHaveProperty('p95')
+  expect(c.stats).not.toHaveProperty('ci95')
+  expect(validate(r)).toBe(true)
+})
+
+test('stats carrying a p95 is rejected (not part of the contract)', () => {
+  const r = structuredClone(goodReport)
+  r.results['clinical-flat'].cases[0].stats = {
+    mean: 1.25,
+    stddev: 0.05,
+    min: 1.2,
+    max: 1.3,
+    median: 1.25,
+    p95: 1.3,
+  }
+  expect(validate(r)).toBe(false)
+})
+
+test('stats carrying a ci95 is rejected (not part of the contract)', () => {
+  const r = structuredClone(goodReport)
+  r.results['clinical-flat'].cases[0].stats = {
+    mean: 1.25,
+    stddev: 0.05,
+    min: 1.2,
+    max: 1.3,
+    median: 1.25,
+    ci95: { lo: 1.2, hi: 1.3 },
+  }
+  expect(validate(r)).toBe(false)
 })
 
 test('a low sample count is NOT schema-rejected (>= 7 is advisory)', () => {

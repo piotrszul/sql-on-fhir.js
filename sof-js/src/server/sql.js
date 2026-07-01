@@ -15,6 +15,7 @@ import { evaluate } from '../index.js'
 import { layout } from './ui.js'
 import { isHtml, renderOperationDefinition, wrapBundle } from './utils.js'
 import { validateSqlLibrary } from './sqlLibraryValidation.js'
+import { serializeCsv } from '../csv.js'
 
 // Map a FHIR Library.parameter.type to the corresponding `value[x]` field
 // name on a Parameters.parameter entry.
@@ -560,27 +561,9 @@ function formatRows(rows, format, includeHeader) {
     return { contentType: 'application/ndjson', body }
   }
   if (format === 'csv') {
-    if (rows.length === 0) {
-      return { contentType: 'text/csv', body: '' }
-    }
-    const cols = Object.keys(rows[0])
-    const lines = []
-    if (includeHeader) lines.push(cols.join(','))
-    for (const row of rows) {
-      lines.push(cols.map((c) => csvEscape(row[c])).join(','))
-    }
-    return { contentType: 'text/csv', body: lines.join('\n') }
+    return { contentType: 'text/csv', body: serializeCsv(rows, { includeHeader }) }
   }
   throw new SqlQueryRunError(400, 'invalid', `Unsupported _format '${format}'`)
-}
-
-function csvEscape(value) {
-  if (value === null || value === undefined) return ''
-  const s = String(value)
-  if (s.includes(',') || s.includes('"') || s.includes('\n')) {
-    return '"' + s.replace(/"/g, '""') + '"'
-  }
-  return s
 }
 
 /**
