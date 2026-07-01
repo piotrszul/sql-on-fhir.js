@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
-import { createHash } from 'node:crypto'
-import { datasetDir } from './layout.js'
+import { join } from 'node:path'
+import { datasetDir, resourceFile, sha256Of } from './layout.js'
 
 // The checkfile is the committed home for everything GENERATED about a benchmark:
 // dataset identity, generator version, per-size resource counts, per-file sha256
@@ -14,30 +14,28 @@ function countLines(path) {
   return txt.endsWith('\n') ? txt.split('\n').length - 1 : txt.split('\n').length
 }
 
-function sha256Of(path) {
-  return createHash('sha256').update(readFileSync(path)).digest('hex')
-}
-
 // Build a checkfile object from materialized data + assertions. When `previous` is
 // supplied, sizes and per-case assertion entries not being (re-)blessed now are
 // carried forward, so blessing one size never disturbs another.
 export function buildCheckfile({ dataRoot, dataset, sizes, assertions, previous }) {
   const sizeEntries = { ...(previous?.sizes || {}) }
   for (const size of sizes) {
-    const dir = datasetDir(dataRoot, dataset.name, dataset.version, size)
     const resourceCounts = {}
     const files = {}
     for (const r of dataset.resources) {
-      const path = `${dir}/${r}.ndjson`
+      const path = resourceFile(dataRoot, dataset.name, dataset.version, size, r)
       resourceCounts[r] = countLines(path)
       files[`${r}.ndjson`] = { sha256: sha256Of(path) }
     }
     sizeEntries[size] = { resourceCounts, files }
   }
 
-  // Merge assertions per case per size on top of any previous assertions.
+  // Merge assertions per case per size on top of any previous assertions, then
+  // prune: only case ids present in the current benchmark (the keys being blessed
+  // now) survive, so a deleted/renamed case's stale assertion does not persist.
+  const currentIds = new Set(Object.keys(assertions || {}))
   const merged = {}
-  for (const id of new Set([...Object.keys(previous?.assertions || {}), ...Object.keys(assertions || {})])) {
+  for (const id of currentIds) {
     merged[id] = { ...(previous?.assertions?.[id] || {}), ...(assertions?.[id] || {}) }
   }
 
@@ -69,7 +67,7 @@ export function verifyChecksums({ dataRoot, checkfile, size }) {
   const files = checkfile?.sizes?.[size]?.files || {}
   const dir = datasetDir(dataRoot, checkfile.dataset.name, checkfile.dataset.version, size)
   for (const [file, { sha256 }] of Object.entries(files)) {
-    const path = `${dir}/${file}`
+    const path = join(dir, file)
     if (!existsSync(path)) {
       drift.push(`${size}/${file}: missing (locked ${sha256})`)
       continue

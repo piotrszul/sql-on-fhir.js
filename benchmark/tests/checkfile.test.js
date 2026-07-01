@@ -81,6 +81,33 @@ test('writeCheckfile persists and blessing one size leaves other sizes untouched
   rmSync(dataRoot, { recursive: true, force: true })
 })
 
+test('re-blessing drops assertions for case ids no longer in the benchmark', () => {
+  const dataRoot = seedDataRoot()
+  const out = join(dataRoot, 'clinical-flat.check.json')
+  // first bless with two cases
+  const cf1 = buildCheckfile({
+    dataRoot,
+    dataset,
+    sizes: ['s'],
+    assertions: { keep: { s: 2 }, gone: { s: 4 } },
+  })
+  writeCheckfile(out, cf1)
+  const existing = readCheckfile(out)
+  expect(existing.assertions.gone).toBeDefined()
+
+  // re-bless with only the surviving case id
+  const cf2 = buildCheckfile({
+    dataRoot,
+    dataset,
+    sizes: ['s'],
+    assertions: { keep: { s: 2 } },
+    previous: existing,
+  })
+  expect(cf2.assertions.keep).toBeDefined()
+  expect(cf2.assertions.gone).toBeUndefined()
+  rmSync(dataRoot, { recursive: true, force: true })
+})
+
 // ---- READER ----
 
 test('assertionFor reads the expected count by case id and size', () => {
