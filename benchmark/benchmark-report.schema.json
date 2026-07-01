@@ -50,7 +50,7 @@
       "properties": {
         "scenario": {
           "enum": ["end_to_end", "preloaded_repeated"],
-          "description": "Both map to JMH SingleShotTime (ss). end_to_end times one full NDJSON->CSV conversion per sample (sink csv); preloaded_repeated times a query over preloaded data with load excluded (sink table/memory)."
+          "description": "Both map to JMH SingleShotTime (ss) and use sink csv; the distinction is the load boundary, not the sink. end_to_end times one full NDJSON->CSV conversion per sample (sink csv); preloaded_repeated times a query-plus-CSV-extract over preloaded data with load excluded (sink csv)."
         },
         "phases": { "type": "array", "items": { "enum": ["load", "execute", "extract"] } },
         "sink": { "enum": ["table", "csv", "memory", "other"] },
