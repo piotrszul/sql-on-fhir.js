@@ -86,19 +86,29 @@ export function buildReport({
     if (expected != null && outputRows !== expected && !c.countVariancePermitted) status = 'count_mismatch'
     return { id: c.id, status, inputRows, outputRows, samplesMs, stats: statsOf(samplesMs) }
   })
+  // end_to_end times load + execute + extract; preloaded_repeated excludes load.
+  // The sink is csv for BOTH scenarios (benchmark-report-format): a full
+  // materialization inside the timed region so extract cost is comparable and an
+  // optimizer cannot prune it. The scenario distinction is PURELY the load boundary.
+  const phases = scenario === 'end_to_end' ? ['load', 'execute', 'extract'] : ['execute', 'extract']
   return {
     implementation: impl,
-    benchmark: { name: benchmark.title, version: benchmark.dataset.version },
+    // Benchmark identity sourced DIRECTLY from the authored suite name/version,
+    // not invented from a pinned tag and not the dataset version.
+    benchmark: { name: benchmark.name, version: benchmark.version },
     dataset: { name: benchmark.dataset.name, version: benchmark.dataset.version },
     measurement: {
       scenario,
-      phases: ['execute', 'extract'],
-      sink: 'memory',
+      phases,
+      sink: 'csv',
       warmup,
       iterations: measurement,
     },
+    // The results map is keyed by the stable suite name, consistent with
+    // report.benchmark.name, the case id, and dataset name/version — never the
+    // mutable title.
     results: {
-      [benchmark.title]: {
+      [benchmark.name]: {
         size,
         fhirVersion: benchmark.fhirVersion,
         resourceCounts: observeResourceCounts({ benchmark, size, dataRoot }),

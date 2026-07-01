@@ -11,7 +11,9 @@ import { readCheckfile, assertionFor } from '../../benchmark/tools/checkfile.js'
 const validateReport = new Ajv({ strict: false }).compile(reportSchema)
 
 const benchmark = {
-  title: 'clinical-flat',
+  name: 'clinical-flat',
+  version: '2',
+  title: 'Clinical flat (human label)',
   fhirVersion: '4.0.1',
   iterations: { warmup: 0, measurement: 2 },
   dataset: {
@@ -178,7 +180,9 @@ test('buildReport emits a schema-valid report with structured implementation, sc
   })
   expect(validateReport(report)).toBe(true)
   expect(report.implementation.engine).toEqual({ name: 'sof-js', version: '2.0.0' })
-  expect(report.benchmark).toEqual({ name: 'clinical-flat', version: '1' })
+  // benchmark identity sourced DIRECTLY from the authored suite name/version,
+  // not invented from a pinned tag and not the dataset version (which is '1').
+  expect(report.benchmark).toEqual({ name: 'clinical-flat', version: '2' })
   expect(report.dataset).toEqual({ name: 'synthea-clinical', version: '1' })
   expect(['end_to_end', 'preloaded_repeated']).toContain(report.measurement.scenario)
   const res = report.results['clinical-flat']
@@ -187,9 +191,43 @@ test('buildReport emits a schema-valid report with structured implementation, sc
   expect(c0.id).toBe('obs')
   expect(c0.inputRows).toBe(2) // number of Observation resources loaded
   expect(c0.stats).toHaveProperty('mean')
-  expect(c0.stats).toHaveProperty('p50')
-  expect(c0.stats).toHaveProperty('p95')
+  expect(c0.stats).toHaveProperty('median')
+  expect(c0.stats).not.toHaveProperty('p50')
   expect(c0.stats).toHaveProperty('stddev')
+  rmSync(dataRoot, { recursive: true, force: true })
+})
+
+test('the results map is keyed by the stable suite name, not the free-text title', () => {
+  const dataRoot = seedData()
+  const report = buildReport({
+    benchmark,
+    size: 's',
+    dataRoot,
+    impl: { engine: { name: 'sof-js', version: '2.0.0' } },
+  })
+  expect(report.results).toHaveProperty('clinical-flat') // suite name
+  expect(report.results).not.toHaveProperty('Clinical flat (human label)') // title
+  rmSync(dataRoot, { recursive: true, force: true })
+})
+
+test('both scenarios default to a csv sink', () => {
+  const dataRoot = seedData()
+  const e2e = buildReport({
+    benchmark,
+    size: 's',
+    dataRoot,
+    scenario: 'end_to_end',
+    impl: { engine: { name: 'sof-js', version: '2.0.0' } },
+  })
+  const pre = buildReport({
+    benchmark,
+    size: 's',
+    dataRoot,
+    scenario: 'preloaded_repeated',
+    impl: { engine: { name: 'sof-js', version: '2.0.0' } },
+  })
+  expect(e2e.measurement.sink).toBe('csv')
+  expect(pre.measurement.sink).toBe('csv')
   rmSync(dataRoot, { recursive: true, force: true })
 })
 

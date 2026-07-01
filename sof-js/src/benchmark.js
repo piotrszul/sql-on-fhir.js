@@ -31,9 +31,11 @@ function percentile(sorted, p) {
   return sorted[lo] + (sorted[hi] - sorted[lo]) * (rank - lo)
 }
 
-// The defined basic-statistics shape (benchmark-report-format): mean/min/max/stddev
-// plus p50/p95, all in the same unit as samplesMs. Shaped to project onto a JMH
-// primaryMetric without recomputation.
+// The defined basic-statistics REQUIRED shape (benchmark-report-format):
+// mean/stddev/min/max/median, all in the same unit as samplesMs. `median` is the
+// required middle value (formerly required as `p50`). Richer percentiles (e.g.
+// p95) and ci95 are OPTIONAL and are not emitted here; any consumer can recompute
+// them from the raw samplesMs the report always carries.
 export function statsOf(samplesMs) {
   const n = samplesMs.length
   const min = Math.min(...samplesMs)
@@ -42,5 +44,5 @@ export function statsOf(samplesMs) {
   const variance = n > 1 ? samplesMs.reduce((a, b) => a + (b - mean) ** 2, 0) / (n - 1) : 0
   const stddev = Math.sqrt(variance)
   const sorted = [...samplesMs].sort((a, b) => a - b)
-  return { mean, min, max, stddev, p50: percentile(sorted, 50), p95: percentile(sorted, 95) }
+  return { mean, stddev, min, max, median: percentile(sorted, 50) }
 }

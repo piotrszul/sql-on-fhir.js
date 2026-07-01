@@ -26,12 +26,14 @@ test('timeEvaluate returns one sample per measurement iteration and the output r
   expect(outputRows).toBe(3) // 2 components on o1 + 1 on o2
 })
 
-test('statsOf computes the defined basic-statistics shape', () => {
+test('statsOf computes the defined basic-statistics shape (median replaces p50)', () => {
   const s = statsOf([2, 4, 6])
   expect(s.min).toBe(2)
   expect(s.max).toBe(6)
   expect(s.mean).toBe(4)
   expect(s).toHaveProperty('stddev')
-  expect(s).toHaveProperty('p50')
-  expect(s).toHaveProperty('p95')
+  expect(s).toHaveProperty('median')
+  expect(s.median).toBe(4)
+  expect(s).not.toHaveProperty('p50')
+  expect(s).not.toHaveProperty('p95')
 })

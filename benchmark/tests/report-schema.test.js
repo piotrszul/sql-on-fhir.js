@@ -26,7 +26,7 @@ const goodReport = {
           inputRows: 10,
           outputRows: 10,
           samplesMs: [1.2, 1.3],
-          stats: { mean: 1.25, min: 1.2, max: 1.3, stddev: 0.05, p50: 1.25, p95: 1.3 },
+          stats: { mean: 1.25, min: 1.2, max: 1.3, stddev: 0.05, median: 1.25 },
         },
       ],
     },
@@ -76,6 +76,46 @@ test('a free-form stats missing the defined fields is rejected', () => {
   const bad = structuredClone(goodReport)
   bad.results['clinical-flat'].cases[0].stats = { avg: 1.2 }
   expect(validate(bad)).toBe(false)
+})
+
+test('stats carrying {mean, stddev, min, max, median} is accepted', () => {
+  const r = structuredClone(goodReport)
+  r.results['clinical-flat'].cases[0].stats = { mean: 1.25, stddev: 0.05, min: 1.2, max: 1.3, median: 1.25 }
+  expect(validate(r)).toBe(true)
+})
+
+test('stats omitting median (a required field) is rejected', () => {
+  const bad = structuredClone(goodReport)
+  bad.results['clinical-flat'].cases[0].stats = { mean: 1.25, stddev: 0.05, min: 1.2, max: 1.3 }
+  expect(validate(bad)).toBe(false)
+})
+
+test('stats carrying the required fields but omitting p95 and ci95 is accepted (both optional)', () => {
+  const r = structuredClone(goodReport)
+  const c = r.results['clinical-flat'].cases[0]
+  c.stats = { mean: 1.25, stddev: 0.05, min: 1.2, max: 1.3, median: 1.25 }
+  expect(c.stats).not.toHaveProperty('p95')
+  expect(c.stats).not.toHaveProperty('ci95')
+  expect(validate(r)).toBe(true)
+})
+
+test('stats carrying an optional p95 is accepted', () => {
+  const r = structuredClone(goodReport)
+  r.results['clinical-flat'].cases[0].stats = {
+    mean: 1.25,
+    stddev: 0.05,
+    min: 1.2,
+    max: 1.3,
+    median: 1.25,
+    p95: 1.3,
+  }
+  expect(validate(r)).toBe(true)
+})
+
+test('samplesMs with a low count is accepted (>= 7 is advisory, never a minItems floor)', () => {
+  const r = structuredClone(goodReport)
+  r.results['clinical-flat'].cases[0].samplesMs = [1.2]
+  expect(validate(r)).toBe(true)
 })
 
 test('a low sample count is NOT schema-rejected (>= 7 is advisory)', () => {
