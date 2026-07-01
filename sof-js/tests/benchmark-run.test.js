@@ -228,6 +228,10 @@ test('both scenarios default to a csv sink', () => {
   })
   expect(e2e.measurement.sink).toBe('csv')
   expect(pre.measurement.sink).toBe('csv')
+  // The scenario distinction is the load boundary, not the sink: end_to_end
+  // includes load; preloaded_repeated excludes it. Both extract to csv.
+  expect(e2e.measurement.phases).toEqual(['load', 'execute', 'extract'])
+  expect(pre.measurement.phases).toEqual(['execute', 'extract'])
   rmSync(dataRoot, { recursive: true, force: true })
 })
 

@@ -112,12 +112,6 @@ test('stats carrying an optional p95 is accepted', () => {
   expect(validate(r)).toBe(true)
 })
 
-test('samplesMs with a low count is accepted (>= 7 is advisory, never a minItems floor)', () => {
-  const r = structuredClone(goodReport)
-  r.results['clinical-flat'].cases[0].samplesMs = [1.2]
-  expect(validate(r)).toBe(true)
-})
-
 test('a low sample count is NOT schema-rejected (>= 7 is advisory)', () => {
   const r = structuredClone(goodReport)
   r.results['clinical-flat'].cases[0].samplesMs = [1.2]
