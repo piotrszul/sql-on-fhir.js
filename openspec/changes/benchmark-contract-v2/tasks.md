@@ -80,41 +80,41 @@ precedes its green step.
 
 ## 5. Checkfile writer + reader — TDD
 
-- [ ] 5.1 (RED) Write failing tests for the checkfile WRITER (bless step):
+- [x] 5.1 (RED) Write failing tests for the checkfile WRITER (bless step):
   writing a checkfile produces dataset identity, `syntheaVersion`, per-size
   `resourceCounts`, per-file `sha256`, and per-case per-size `assertions`; the
   blessed assertion equals the analytic derivation (no `forEach`/`where` ⇒ input
   resource count; `forEach` ⇒ total collection-entry count; `where` ⇒ filtered
   count)
-- [ ] 5.2 (RED) Write failing tests for the checkfile READER used by the runner:
+- [x] 5.2 (RED) Write failing tests for the checkfile READER used by the runner:
   it reads assertions by case `id` + size; strict mode compares per-file sha256
   to the checkfile and surfaces drift
-- [ ] 5.3 (RED) Confirm 5.1–5.2 fail for the right reason (no writer/reader yet)
-- [ ] 5.4 (GREEN) Implement the checkfile writer in the benchmark build (bless
+- [x] 5.3 (RED) Confirm 5.1–5.2 fail for the right reason (no writer/reader yet)
+- [x] 5.4 (GREEN) Implement the checkfile writer in the benchmark build (bless
   path) and the reader in the runner; confirm the tests pass
 
 ## 6. Runner relocation from hash to name+version — TDD
 
-- [ ] 6.1 (RED) Write failing tests: the runner resolves
+- [x] 6.1 (RED) Write failing tests: the runner resolves
   `data/<name>/<version>/<size>/` from the dataset `name`/`version` with NO hash
   derivation; it reads expected counts from the CHECKFILE (not inline
   `expectCount`); a `where`/`forEach`-labelled variance-permitted case is NOT
   auto-flagged `count_mismatch`; `--record` WRITES the checkfile and does not edit
   the benchmark file
-- [ ] 6.2 (RED) Confirm the tests fail for the right reason (still hash/inline)
-- [ ] 6.3 (GREEN) Rewrite the runner's data resolution and guard to use identity +
+- [x] 6.2 (RED) Confirm the tests fail for the right reason (still hash/inline)
+- [x] 6.3 (GREEN) Rewrite the runner's data resolution and guard to use identity +
   checkfile; wire bless mode to the checkfile writer; confirm the tests pass
 
 ## 7. Report emission (implementation identity, scenario, stats, provenance) — TDD
 
-- [ ] 7.1 (RED) Write failing tests: the reference runner emits a report with the
+- [x] 7.1 (RED) Write failing tests: the reference runner emits a report with the
   structured `implementation` (engine required), a `measurement.scenario`, the
   a per-case `id`, the defined `stats` shape computed from `samplesMs` (advisory
   `>= 7`), correct `inputRows` (count of the case's `view.resource` type), and
   benchmark + dataset
   provenance and resource counts
-- [ ] 7.2 (RED) Confirm the tests fail for the right reason
-- [ ] 7.3 (GREEN) Update the runner's report emission; confirm the tests pass and
+- [x] 7.2 (RED) Confirm the tests fail for the right reason
+- [x] 7.3 (GREEN) Update the runner's report emission; confirm the tests pass and
   the emitted report validates against the updated report schema
 
 ## 8. Move expectCount out of the benchmark file (data migration)
