@@ -19,6 +19,11 @@ export function validateBenchmark(file) {
   if (ds.defaultSize && !sizes.includes(ds.defaultSize))
     errors.push(`defaultSize "${ds.defaultSize}" is not a declared size`)
 
+  // A synthea dataset must pin its simulation end date explicitly; without it the
+  // executor would otherwise track the wall clock, making the dataset irreproducible.
+  if (ds.kind === 'synthea' && ds.params?.endTime == null)
+    errors.push('synthea dataset must declare params.endTime (pinned simulation end date)')
+
   for (const c of file.cases || []) {
     const res = c.view?.resource
     if (res && !(ds.resources || []).includes(res))

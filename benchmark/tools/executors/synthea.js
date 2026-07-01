@@ -28,12 +28,23 @@ export function makeSyntheaExecutor(config) {
       String(p.clinicianSeed ?? 1652609873669),
       '-r',
       String(p.referenceTime ?? 20240101),
+      // Pin the simulation end date; never fall back to the wall clock. A missing
+      // endTime is surfaced by the benchmark invariant validator, not defaulted here.
+      '-e',
+      String(p.endTime),
+      // Serialise generation so the export order is deterministic (counts are
+      // already deterministic given -e; only order depends on thread count).
+      '--generate.thread_count=1',
       `--exporter.baseDirectory=${outDir}`,
-      '--exporter.fhir.bulk_data=true',
+      // --exporter.fhir.export is a mode selector (turning it off yields no data),
+      // so it is an executor invariant rather than a recipe-controlled dataset dial.
       '--exporter.fhir.export=true',
-      '--exporter.hospital.fhir.export=false',
-      '--exporter.practitioner.fhir.export=false',
-      `--exporter.years_of_history=${p.yearsOfHistory ?? 1}`,
+      // Output-affecting toggles are sourced from the recipe params so that
+      // recipe + version fully determines the dataset and the content hash covers them.
+      `--exporter.fhir.bulk_data=${p.bulkData}`,
+      `--exporter.hospital.fhir.export=${p.hospitalExport}`,
+      `--exporter.practitioner.fhir.export=${p.practitionerExport}`,
+      `--exporter.years_of_history=${p.yearsOfHistory}`,
     ]
     const res = spawnSync(java, args, { stdio: 'inherit' })
     if (res.status !== 0) throw new Error(`synthea exited with status ${res.status}`)

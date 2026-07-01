@@ -9,6 +9,7 @@ const base = () => ({
     kind: 'synthea',
     version: '3.2.0',
     resources: ['Condition'],
+    params: { endTime: 20250101 },
     sizes: { s: { population: 100 }, m: { population: 1000 } },
     defaultSize: 's',
   },
@@ -42,6 +43,12 @@ test('expectCount keys must be declared sizes', () => {
   const f = base()
   f.cases[0].expectCount = { s: 10, XL: 1 }
   expect(validateBenchmark(f).some((e) => e.includes('expectCount size "XL"'))).toBe(true)
+})
+
+test('a synthea recipe missing params.endTime is rejected', () => {
+  const f = base()
+  delete f.dataset.params.endTime
+  expect(validateBenchmark(f).some((e) => e.includes('endTime'))).toBe(true)
 })
 
 test('defaultSize must be a declared size', () => {
