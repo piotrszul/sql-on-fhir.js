@@ -1,43 +1,41 @@
 import { test, expect } from 'bun:test'
-import { recipeHash, datasetKey, datasetDir, resourceFile, manifestFile, recipeOf } from '../tools/layout.js'
+import * as layout from '../tools/layout.js'
+import { datasetDir, resourceFile, manifestFile, checkfileFor, recipeOf } from '../tools/layout.js'
 
-const recipe = { kind: 'synthea', version: '3.2.0', resources: ['Condition'], params: { seed: 589 } }
-
-test('recipeHash is stable regardless of key order', () => {
-  const a = recipeHash({ kind: 'synthea', version: '3.2.0', resources: ['Condition'], params: { seed: 589 } })
-  const b = recipeHash({ params: { seed: 589 }, resources: ['Condition'], version: '3.2.0', kind: 'synthea' })
-  expect(a).toBe(b)
-  expect(a).toMatch(/^[0-9a-f]{8}$/)
+test('paths are keyed by explicit name and version, with no content hash', () => {
+  const dir = datasetDir('/data', 'synthea-clinical', '1', 's')
+  expect(dir).toBe('/data/synthea-clinical/1/s')
+  expect(resourceFile('/data', 'synthea-clinical', '1', 's', 'Condition')).toBe(`${dir}/Condition.ndjson`)
+  expect(manifestFile('/data', 'synthea-clinical', '1', 's')).toBe(`${dir}/manifest.json`)
 })
 
-test('recipeHash changes when content changes', () => {
-  expect(recipeHash(recipe)).not.toBe(recipeHash({ ...recipe, params: { seed: 590 } }))
+test('no content-hash derivation is exported (F1/F6 removed)', () => {
+  expect(layout.recipeHash).toBeUndefined()
+  expect(layout.datasetKey).toBeUndefined()
 })
 
-test('datasetKey is name_hash', () => {
-  expect(datasetKey('synthea-clinical', recipe)).toBe(`synthea-clinical_${recipeHash(recipe)}`)
+test('distinct versions and sizes occupy distinct directories', () => {
+  expect(datasetDir('/data', 'd', '1', 's')).not.toBe(datasetDir('/data', 'd', '2', 's'))
+  expect(datasetDir('/data', 'd', '1', 's')).not.toBe(datasetDir('/data', 'd', '1', 'm'))
 })
 
-test('paths place size and resource correctly', () => {
-  const dir = datasetDir('/data', 'd', recipe, 's')
-  expect(dir).toBe(`/data/d_${recipeHash(recipe)}/s`)
-  expect(resourceFile('/data', 'd', recipe, 's', 'Condition')).toBe(`${dir}/Condition.ndjson`)
-  expect(manifestFile('/data', 'd', recipe, 's')).toBe(`${dir}/manifest.json`)
+test('checkfileFor resolves the sibling checkfile by benchmark file basename', () => {
+  expect(checkfileFor('/bench/clinical-flat.json')).toBe('/bench/clinical-flat.check.json')
 })
 
-test('recipeOf strips name/sizes/defaultSize and keeps the rest', () => {
+test('recipeOf strips name/version/sizes/defaultSize and keeps recipe params', () => {
   const dataset = {
     name: 'd',
     kind: 'synthea',
-    version: '3.2.0',
+    version: '1',
     resources: ['Condition'],
     params: { seed: 589 },
     sizes: { s: { population: 100 } },
     defaultSize: 's',
   }
+  // recipeOf keeps what the executor needs to generate: kind, resources, params.
   expect(recipeOf(dataset)).toEqual({
     kind: 'synthea',
-    version: '3.2.0',
     resources: ['Condition'],
     params: { seed: 589 },
   })

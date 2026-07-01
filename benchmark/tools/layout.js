@@ -1,38 +1,34 @@
-import { createHash } from 'node:crypto'
-import { join } from 'node:path'
+import { join, dirname, basename } from 'node:path'
 
-function stableStringify(value) {
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`
-  if (value && typeof value === 'object')
-    return `{${Object.keys(value)
-      .sort()
-      .map((k) => `${JSON.stringify(k)}:${stableStringify(value[k])}`)
-      .join(',')}}`
-  return JSON.stringify(value)
+// Dataset identity is the explicit (name, version) pair — human-maintained, NOT a
+// derived content hash. This deliberately removes the old JS-only recipe
+// canonicaliser, the `.slice(0, 8)` truncation, and the array-order hash bug
+// (findings F1/F6): any runner in any language locates data by the string pair
+// alone, with no canonicalization contract to reproduce.
+
+export function datasetDir(dataRoot, name, version, size) {
+  return join(dataRoot, name, version, size)
 }
 
-export function recipeHash(recipe) {
-  return createHash('sha256').update(stableStringify(recipe)).digest('hex').slice(0, 8)
+export function resourceFile(dataRoot, name, version, size, resourceType) {
+  return join(datasetDir(dataRoot, name, version, size), `${resourceType}.ndjson`)
 }
 
-export function datasetKey(name, recipe) {
-  return `${name}_${recipeHash(recipe)}`
+export function manifestFile(dataRoot, name, version, size) {
+  return join(datasetDir(dataRoot, name, version, size), 'manifest.json')
 }
 
-export function datasetDir(dataRoot, name, recipe, size) {
-  return join(dataRoot, datasetKey(name, recipe), size)
+// The committed checkfile is a sibling of the benchmark file, discoverable by
+// swapping the extension: benchmark/<name>.json -> benchmark/<name>.check.json.
+export function checkfileFor(benchmarkPath) {
+  const base = basename(benchmarkPath).replace(/\.json$/, '')
+  return join(dirname(benchmarkPath), `${base}.check.json`)
 }
 
-export function resourceFile(dataRoot, name, recipe, size, resourceType) {
-  return join(datasetDir(dataRoot, name, recipe, size), `${resourceType}.ndjson`)
-}
-
-export function manifestFile(dataRoot, name, recipe, size) {
-  return join(datasetDir(dataRoot, name, recipe, size), 'manifest.json')
-}
-
+// The declarative recipe the executor generates from = what the executor needs
+// (kind, resources, params). name/version are IDENTITY (not recipe), and
+// sizes/defaultSize are presentation, so they are stripped.
 export function recipeOf(dataset) {
-  // the declarative recipe = the dataset minus presentation-only fields
-  const { name, sizes, defaultSize, ...rest } = dataset
+  const { name, version, sizes, defaultSize, ...rest } = dataset
   return rest
 }

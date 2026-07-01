@@ -67,15 +67,15 @@ precedes its green step.
 
 ## 4. Materializer identity-keyed layout (no hash) — TDD
 
-- [ ] 4.1 (RED) Write failing tests: the materializer writes
+- [x] 4.1 (RED) Write failing tests: the materializer writes
   `data/<name>/<version>/<size>/` and derives NO content hash; the JS-only
   recipe canonicaliser / `.slice(0, 8)` / array-order hash path is removed (assert
   it is no longer called)
-- [ ] 4.2 (RED) Confirm the tests fail for the right reason (still hash-keyed)
-- [ ] 4.3 (GREEN) Rework the materializer to key by `name`/`version`; delete the
+- [x] 4.2 (RED) Confirm the tests fail for the right reason (still hash-keyed)
+- [x] 4.3 (GREEN) Rework the materializer to key by `name`/`version`; delete the
   content-hash canonicaliser (kills F1/F6); update `manifest.json` writing;
   confirm the tests pass
-- [ ] 4.4 (RED→GREEN) Byte-identity test: materializing under two simulated
+- [x] 4.4 (RED→GREEN) Byte-identity test: materializing under two simulated
   timezones yields identical per-file sha256 (relies on §3)
 
 ## 5. Checkfile writer + reader — TDD

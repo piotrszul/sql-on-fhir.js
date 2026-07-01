@@ -1,4 +1,5 @@
 import { mkdtempSync, mkdirSync, existsSync, readFileSync, writeFileSync, renameSync, rmSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { datasetDir, manifestFile, recipeOf } from './layout.js'
@@ -9,11 +10,15 @@ function countLines(path) {
   return txt.endsWith('\n') ? txt.split('\n').length - 1 : txt.split('\n').length
 }
 
+function sha256Of(path) {
+  return createHash('sha256').update(readFileSync(path)).digest('hex')
+}
+
 export async function materialize({ dataset, size, dataRoot, executor, force = false }) {
   const recipe = recipeOf(dataset)
   const population = dataset.sizes[size].population
-  const dir = datasetDir(dataRoot, dataset.name, recipe, size)
-  const manifestPath = manifestFile(dataRoot, dataset.name, recipe, size)
+  const dir = datasetDir(dataRoot, dataset.name, dataset.version, size)
+  const manifestPath = manifestFile(dataRoot, dataset.name, dataset.version, size)
 
   if (!force && existsSync(manifestPath)) {
     const existing = JSON.parse(readFileSync(manifestPath, 'utf8'))
@@ -27,12 +32,14 @@ export async function materialize({ dataset, size, dataRoot, executor, force = f
     mkdirSync(dir, { recursive: true })
     // keep only selected resources; prune the rest
     const counts = {}
+    const checksums = {}
     for (const r of dataset.resources) {
       const src = join(staging, `${r}.ndjson`)
       if (!existsSync(src)) throw new Error(`executor did not produce ${r}.ndjson`)
       const dst = join(dir, `${r}.ndjson`)
       renameSync(src, dst)
       counts[r] = countLines(dst)
+      checksums[`${r}.ndjson`] = { sha256: sha256Of(dst) }
     }
     const manifest = {
       name: dataset.name,
@@ -41,6 +48,7 @@ export async function materialize({ dataset, size, dataRoot, executor, force = f
       size,
       population,
       resources: counts,
+      files: checksums,
       generatedAt: new Date().toISOString(),
     }
     writeFileSync(manifestPath, JSON.stringify(manifest, null, 2))
