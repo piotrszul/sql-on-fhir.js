@@ -15,12 +15,13 @@ function setup() {
       name: 'd',
       kind: 'synthea',
       version: '3.2.0',
+      syntheaVersion: '3.2.0',
       resources: ['Condition'],
       sizes: { s: { population: 100 } },
       defaultSize: 's',
       params: { seed: 589 },
     },
-    cases: [{ title: 'c', view: { resource: 'Condition' } }],
+    cases: [{ id: 'c', title: 'c', view: { resource: 'Condition' } }],
   }
   writeFileSync(join(dir, 'clinical-flat.json'), JSON.stringify(file))
   return { dir, dataRoot }
