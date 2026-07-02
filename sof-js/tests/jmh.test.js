@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test'
-import { mkdtempSync, rmSync, existsSync, readFileSync, readdirSync } from 'node:fs'
+import { mkdtempSync, rmSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { projectJmh, writeJmhExports, implementationId } from '../src/jmh.js'
@@ -7,7 +7,7 @@ import { projectJmh, writeJmhExports, implementationId } from '../src/jmh.js'
 // A hand-computed fixture. samplesMs = [10, 12, 14, 16] for the ok case.
 //
 //   n = 4
-//   mean (stats.mean, read from the report)            = 13
+//   mean (recomputed locally from samplesMs)           = 13
 //   sample (n-1) stddev of [10,12,14,16]:
 //       deviations from mean 13: -3, -1, 1, 3
 //       squared: 9, 1, 1, 9 => sum 20; /(n-1)=/3 => 6.6666666667
@@ -56,7 +56,29 @@ function baseReport(overrides = {}) {
 
 const HALF_WIDTH = 2.5303026437220244
 
-test('primaryMetric: mode ss, ms/op, score is stats.mean, rawData is nested samplesMs', () => {
+test('score/scoreConfidence are recomputed from samplesMs, not read from stats.mean', () => {
+  // An EXTERNAL report whose stats.mean deliberately drifts from its own samplesMs.
+  // The reference computes the mean freshly (statistics.fmean), so the export must
+  // be centred on the SAMPLE mean (13), never on the drifted stats.mean (99).
+  const r = baseReport()
+  r.results['clinical-flat'].cases[0].samplesMs = [10, 12, 14, 16]
+  r.results['clinical-flat'].cases[0].stats.mean = 99
+  const e = JSON.parse(projectJmh(r)[0].content)[0]
+  expect(e.primaryMetric.score).toBe(13)
+  const err = e.primaryMetric.scoreError
+  expect(e.primaryMetric.scoreConfidence).toEqual([13 - err, 13 + err])
+})
+
+test('measurementIterations is the per-cell sample count, not report.measurement.iterations', () => {
+  // An EXTERNAL report whose declared iterations contradict the actual sample count.
+  const r = baseReport()
+  r.measurement.iterations = 99
+  r.results['clinical-flat'].cases[0].samplesMs = [10, 12, 14, 16]
+  const e = JSON.parse(projectJmh(r)[0].content)[0]
+  expect(e.measurementIterations).toBe(4)
+})
+
+test('primaryMetric: mode ss, ms/op, score is the recomputed sample mean, rawData is nested samplesMs', () => {
   const files = projectJmh(baseReport())
   expect(files.length).toBe(1)
   const entries = JSON.parse(files[0].content)
