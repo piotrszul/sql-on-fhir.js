@@ -46,14 +46,24 @@ export function deriveExpectedCount(view, resources) {
   return resources.length
 }
 
+// The timed evaluation body shared by both the isolated (runOneCase) and the
+// non-isolated (runCases) paths: resolve the case's data, load it, time the
+// evaluate, and return the raw measurement. It performs NO error handling — the
+// caller decides whether a throw is isolated (runOneCase) or fatal (runCases).
+function timeCase({ benchmark, size, dataRoot, warmup, measurement, c }) {
+  const path = resolveResourceFile(benchmark, size, dataRoot, c.view.resource)
+  const resources = loadResources(path)
+  const { samplesMs, outputRows } = timeEvaluate(c.view, resources, { warmup, measurement })
+  return { c, inputRows: resources.length, outputRows, samplesMs }
+}
+
+// The NON-isolated path (all-or-nothing): time every case, letting any throw
+// propagate and abort the whole run. Used ONLY by blessCheckfile — bless must
+// never write a checkfile from an incomplete run, so a missing/unreadable file is
+// a hard failure here, in deliberate contrast to buildReport's record-and-continue.
 function runCases({ benchmark, size, dataRoot }) {
   const { warmup, measurement } = benchmark.iterations || { warmup: 1, measurement: 5 }
-  return benchmark.cases.map((c) => {
-    const path = resolveResourceFile(benchmark, size, dataRoot, c.view.resource)
-    const resources = loadResources(path)
-    const { samplesMs, outputRows } = timeEvaluate(c.view, resources, { warmup, measurement })
-    return { c, inputRows: resources.length, outputRows, samplesMs }
-  })
+  return benchmark.cases.map((c) => timeCase({ benchmark, size, dataRoot, warmup, measurement, c }))
 }
 
 // Run ONE case under a per-case boundary (benchmark-reference-runner: record-and-
@@ -62,10 +72,7 @@ function runCases({ benchmark, size, dataRoot }) {
 // aborts and never voids the other cases' recorded results.
 function runOneCase({ benchmark, size, dataRoot, warmup, measurement, c }) {
   try {
-    const path = resolveResourceFile(benchmark, size, dataRoot, c.view.resource)
-    const resources = loadResources(path)
-    const { samplesMs, outputRows } = timeEvaluate(c.view, resources, { warmup, measurement })
-    return { c, inputRows: resources.length, outputRows, samplesMs }
+    return timeCase({ benchmark, size, dataRoot, warmup, measurement, c })
   } catch (err) {
     // A thrown case is recorded, not fatal. loadResources/evaluate raising means the
     // engine attempted the work and errored (execution_error), distinct from a
@@ -83,6 +90,18 @@ function observeResourceCounts({ benchmark, size, dataRoot }) {
     counts[r] = loadResources(path).length
   }
   return counts
+}
+
+// resourceCounts is advisory traceability, NOT a case result: it must never be able
+// to abort buildReport after the cases were already processed (the #8 partial-run
+// guarantee). A missing/unreadable declared resource file degrades to {} so the
+// report is still emitted and validates, in contrast to bless's hard-fail path.
+function observeResourceCountsSafe(args) {
+  try {
+    return observeResourceCounts(args)
+  } catch {
+    return {}
+  }
 }
 
 export function buildReport({
@@ -144,7 +163,7 @@ export function buildReport({
       [benchmark.name]: {
         size,
         fhirVersion: benchmark.fhirVersion,
-        resourceCounts: observeResourceCounts({ benchmark, size, dataRoot }),
+        resourceCounts: observeResourceCountsSafe({ benchmark, size, dataRoot }),
         cases,
       },
     },

@@ -358,3 +358,44 @@ test('a partial run (only some cases completed) emits a schema-valid report of j
   expect(validateReport(report)).toBe(true)
   rmSync(dataRoot, { recursive: true, force: true })
 })
+
+// A benchmark that DECLARES a dataset resource type whose materialized file is
+// absent. observeResourceCounts iterates dataset.resources; a missing file there
+// would throw AFTER all cases were processed — voiding the completed cases array
+// and breaking the partial-run-valid guarantee (#8). It must be failure-isolated.
+const missingDatasetResourceBenchmark = {
+  ...benchmark,
+  dataset: { ...benchmark.dataset, resources: ['Observation', 'Patient'] },
+}
+
+test('a missing dataset resource file does not void the completed cases (resourceCounts is isolated)', () => {
+  const dataRoot = seedData() // seeds Observation.ndjson but NOT Patient.ndjson
+  const report = buildReport({
+    benchmark: missingDatasetResourceBenchmark,
+    size: 's',
+    dataRoot,
+    impl: { engine: { name: 'sof-js', version: '2.0.0' } },
+  })
+  const res = report.results['clinical-flat']
+  // the cases (which loaded Observation fine) are intact despite the missing Patient file
+  expect(res.cases).toHaveLength(2)
+  expect(res.cases.find((c) => c.id === 'obs').status).toBe('ok')
+  // resourceCounts degrades to an empty object rather than aborting the whole report
+  expect(res.resourceCounts).toEqual({})
+  // and the report still validates against the schema
+  expect(validateReport(report)).toBe(true)
+  rmSync(dataRoot, { recursive: true, force: true })
+})
+
+// The intentional contrast to buildReport's record-and-continue isolation:
+// blessCheckfile (via the non-isolated runCases path) is all-or-nothing. A missing
+// data file at bless time is a HARD failure, not a per-case recorded error — bless
+// must never write a checkfile from an incomplete run.
+test('blessCheckfile HARD-fails when a case resource file is absent (no isolation)', () => {
+  const dataRoot = seedData() // seeds Observation.ndjson but NOT Patient.ndjson
+  const cfPath = checkfilePath(dataRoot)
+  expect(() =>
+    blessCheckfile({ benchmark: mixedBenchmark, size: 's', dataRoot, checkfilePath: cfPath }),
+  ).toThrow()
+  rmSync(dataRoot, { recursive: true, force: true })
+})
