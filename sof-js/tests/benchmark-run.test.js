@@ -276,3 +276,85 @@ test('blessCheckfile writes the checkfile with counts, checksums and assertions;
 test('checkfileFor derives the checkfile path from the benchmark file path', () => {
   expect(checkfileFor('/bench/clinical-flat.json')).toBe('/bench/clinical-flat.check.json')
 })
+
+// ---- Wave 2 (#8): per-case failure isolation — record-and-continue ----
+
+// A benchmark whose FIRST case reads a resource type that was never materialized
+// (so loading its data throws) while the SECOND case reads the seeded Observation
+// data. Record-and-continue means the failing case is recorded with an error
+// status and the succeeding case still completes and is recorded.
+const mixedBenchmark = {
+  ...benchmark,
+  cases: [
+    {
+      id: 'missing-data',
+      title: 'reads a resource with no materialized file',
+      view: {
+        resource: 'Patient',
+        select: [{ column: [{ name: 'id', path: 'getResourceKey()', type: 'string' }] }],
+      },
+    },
+    {
+      id: 'obs',
+      title: 'obs',
+      view: {
+        resource: 'Observation',
+        select: [{ column: [{ name: 'id', path: 'getResourceKey()', type: 'string' }] }],
+      },
+    },
+  ],
+}
+
+test('a failing case is recorded with an error status and the run CONTINUES for the others', () => {
+  const dataRoot = seedData() // seeds Observation.ndjson but NOT Patient.ndjson
+  const report = buildReport({
+    benchmark: mixedBenchmark,
+    size: 's',
+    dataRoot,
+    impl: { engine: { name: 'sof-js', version: '2.0.0' } },
+  })
+  const cases = report.results['clinical-flat'].cases
+  // both cases are recorded — the failure did not abort the run or drop the survivor
+  expect(cases).toHaveLength(2)
+  const failed = cases.find((c) => c.id === 'missing-data')
+  const ok = cases.find((c) => c.id === 'obs')
+  expect(failed.status).toBe('execution_error')
+  expect(typeof failed.message).toBe('string')
+  expect(failed.message.length).toBeGreaterThan(0)
+  // the succeeding case is fully recorded with its real result
+  expect(ok.status).toBe('ok')
+  expect(ok.outputRows).toBe(2)
+  rmSync(dataRoot, { recursive: true, force: true })
+})
+
+test('a report from a run with a failing case still validates against the schema', () => {
+  const dataRoot = seedData()
+  const report = buildReport({
+    benchmark: mixedBenchmark,
+    size: 's',
+    dataRoot,
+    impl: { engine: { name: 'sof-js', version: '2.0.0' } },
+  })
+  expect(validateReport(report)).toBe(true)
+  rmSync(dataRoot, { recursive: true, force: true })
+})
+
+test('a partial run (only some cases completed) emits a schema-valid report of just those cases', () => {
+  const dataRoot = seedData()
+  // Simulate a run interrupted after only the first case completed by injecting a
+  // caseFilter that limits which cases are attempted; the emitted report contains
+  // ONLY that case, each with a status, and still validates.
+  const report = buildReport({
+    benchmark: mixedBenchmark,
+    size: 's',
+    dataRoot,
+    caseFilter: (c) => c.id === 'obs',
+    impl: { engine: { name: 'sof-js', version: '2.0.0' } },
+  })
+  const cases = report.results['clinical-flat'].cases
+  expect(cases).toHaveLength(1)
+  expect(cases[0].id).toBe('obs')
+  expect(cases[0]).toHaveProperty('status')
+  expect(validateReport(report)).toBe(true)
+  rmSync(dataRoot, { recursive: true, force: true })
+})
