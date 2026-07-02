@@ -17,10 +17,10 @@ function loadBenchmarks(dir) {
 }
 
 function defaultRegistry() {
+  // tools/executors.config.json is an OPTIONAL override now: with a config its jar /
+  // java win; with no config the executor auto-fetches the pinned Synthea jar.
   const cfg = loadConfig()
-  if (!cfg?.synthea?.jar)
-    throw new Error('No synthea config — copy tools/executors.config.sample.json to executors.config.json')
-  return { synthea: makeSyntheaExecutor(cfg.synthea) }
+  return { synthea: makeSyntheaExecutor({ config: cfg?.synthea ?? null }) }
 }
 
 export async function run({

@@ -19,7 +19,9 @@ function canonicaliseNdjson(src, dst) {
 }
 
 export async function materialize({ dataset, size, dataRoot, executor, force = false }) {
-  const recipe = recipeOf(dataset)
+  // recipeOf strips syntheaVersion for identity purposes; the executor still needs
+  // it to resolve/auto-fetch the pinned generator jar, so pass it through here.
+  const recipe = { ...recipeOf(dataset), syntheaVersion: dataset.syntheaVersion }
   const population = dataset.sizes[size].population
   const dir = datasetDir(dataRoot, dataset.name, dataset.version, size)
   const manifestPath = manifestFile(dataRoot, dataset.name, dataset.version, size)

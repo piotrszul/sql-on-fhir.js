@@ -1,4 +1,5 @@
 {
+  "_comment": "OPTIONAL override. The materializer auto-fetches the pinned Synthea jar (checksum-verified, cached under benchmark/.cache/synthea/) using the recipe's dataset.syntheaVersion, so this config is NOT required. Copy to executors.config.json only to override: point jar at a locally-built synthea-with-dependencies-<version>.jar and/or set a non-default java binary; a present config WINS over the auto-fetch.",
   "synthea": {
     "java": "java",
     "jar": "/absolute/path/to/synthea-with-dependencies-3.2.0.jar"
