@@ -91,7 +91,7 @@
                     "timeout",
                     "malformed"
                   ],
-                  "description": "Per-case outcome. timeout = the case exceeded a wall-clock generation/execution budget and was abandoned (distinct from execution_error, where the engine ran and raised). malformed = the case's inputs or outputs were structurally invalid — a materialized resource that will not parse, or a result that cannot be materialized to the sink (distinct from generation_error, where generation itself failed to produce data)."
+                  "description": "Per-case outcome. execution_error = the engine raised while evaluating the case, or the case's inputs could not be loaded/prepared for execution (a load/preparation failure before the engine ran). timeout = the case exceeded a wall-clock generation/execution budget and was abandoned (distinct from execution_error). malformed = the case's inputs or outputs were structurally invalid — a materialized resource that will not parse, or a result that cannot be materialized to the sink (distinct from generation_error, where generation itself failed to produce data)."
                 },
                 "message": {
                   "type": "string",

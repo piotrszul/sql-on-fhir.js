@@ -16,17 +16,11 @@ export function loadConfig() {
   }
 }
 
-// Accepts either the new options shape { config, resolveJar, cacheDir } or a legacy
-// bare config object { java, jar }. The bare form is treated as the config override.
-function normalizeOptions(opts) {
-  if (opts && (Object.prototype.hasOwnProperty.call(opts, 'config') || opts.resolveJar || opts.cacheDir)) {
-    return opts
-  }
-  return { config: opts || null }
-}
-
-export function makeSyntheaExecutor(opts) {
-  const { config, resolveJar = resolveSyntheaJar, cacheDir = defaultCacheDir() } = normalizeOptions(opts)
+export function makeSyntheaExecutor({
+  config = null,
+  resolveJar = resolveSyntheaJar,
+  cacheDir = defaultCacheDir(),
+} = {}) {
   return async (recipe, population, outDir) => {
     const p = recipe.params || {}
     // Resolve the jar per run: config jar WINS; otherwise auto-fetch the pinned

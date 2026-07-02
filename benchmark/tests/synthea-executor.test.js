@@ -10,7 +10,7 @@ const guarded = config?.synthea?.jar && existsSync(config.synthea.jar) ? test : 
 guarded(
   'synthea executor generates Patient.ndjson for a tiny population',
   async () => {
-    const exec = makeSyntheaExecutor(config.synthea)
+    const exec = makeSyntheaExecutor({ config: config.synthea })
     const out = mkdtempSync(join(tmpdir(), 'synthea-it-'))
     await exec(
       {
@@ -67,14 +67,14 @@ async function captureCall(recipe) {
   installSpawnSpy()
   // re-import after mocking so the executor picks up the spy
   const { makeSyntheaExecutor: make } = await import('../tools/executors/synthea.js')
-  const exec = make({ java: 'java', jar: '/fake/synthea.jar' })
+  const exec = make({ config: { java: 'java', jar: '/fake/synthea.jar' } })
   const out = mkdtempSync(join(tmpdir(), 'synthea-args-'))
   try {
     await exec(recipe, 1, out)
   } finally {
     rmSync(out, { recursive: true, force: true })
   }
-  return { args: capturedArgs, options: capturedOptions }
+  return { args: capturedArgs, options: capturedOptions, out }
 }
 
 test('synthea executor sets TZ=UTC in the child process environment', async () => {
@@ -166,13 +166,13 @@ test('no synthea arg leaks the literal "undefined" for a fully-declared recipe',
 
 test('synthea executor runs in an isolated working directory, not the repo root', async () => {
   // Synthea scatters db.sqlite and public/export/ into its PROCESS CWD. The executor
-  // must set cwd to an isolated scratch dir (the staging outDir) so those artifacts
-  // never land in the repo tree.
-  const { options } = await captureCall({ params: { endTime: 20250101 } })
-  const repoRoot = new URL('../../', import.meta.url).pathname
+  // must set cwd to the exact staging dir (outDir) it was handed — an isolated scratch
+  // dir outside the repo tree — so those artifacts never land in the repo root.
+  const { options, out } = await captureCall({ params: { endTime: 20250101 } })
   expect(options?.cwd).toBeDefined()
-  // the cwd is the isolated staging dir passed to the executor, OUTSIDE the repo tree
-  expect(options.cwd.startsWith(repoRoot)).toBe(false)
+  // pin the behaviour: cwd is precisely the outDir the executor is called with,
+  // not merely "somewhere that isn't the repo root".
+  expect(options.cwd).toBe(out)
 })
 
 test('makeSyntheaExecutor with no config jar auto-fetches the pinned jar via resolveSyntheaJar', async () => {
