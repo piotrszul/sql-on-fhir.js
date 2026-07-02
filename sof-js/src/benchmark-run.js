@@ -46,14 +46,39 @@ export function deriveExpectedCount(view, resources) {
   return resources.length
 }
 
+// The timed evaluation body shared by both the isolated (runOneCase) and the
+// non-isolated (runCases) paths: resolve the case's data, load it, time the
+// evaluate, and return the raw measurement. It performs NO error handling — the
+// caller decides whether a throw is isolated (runOneCase) or fatal (runCases).
+function timeCase({ benchmark, size, dataRoot, warmup, measurement, c }) {
+  const path = resolveResourceFile(benchmark, size, dataRoot, c.view.resource)
+  const resources = loadResources(path)
+  const { samplesMs, outputRows } = timeEvaluate(c.view, resources, { warmup, measurement })
+  return { c, inputRows: resources.length, outputRows, samplesMs }
+}
+
+// The NON-isolated path (all-or-nothing): time every case, letting any throw
+// propagate and abort the whole run. Used ONLY by blessCheckfile — bless must
+// never write a checkfile from an incomplete run, so a missing/unreadable file is
+// a hard failure here, in deliberate contrast to buildReport's record-and-continue.
 function runCases({ benchmark, size, dataRoot }) {
   const { warmup, measurement } = benchmark.iterations || { warmup: 1, measurement: 5 }
-  return benchmark.cases.map((c) => {
-    const path = resolveResourceFile(benchmark, size, dataRoot, c.view.resource)
-    const resources = loadResources(path)
-    const { samplesMs, outputRows } = timeEvaluate(c.view, resources, { warmup, measurement })
-    return { c, inputRows: resources.length, outputRows, samplesMs }
-  })
+  return benchmark.cases.map((c) => timeCase({ benchmark, size, dataRoot, warmup, measurement, c }))
+}
+
+// Run ONE case under a per-case boundary (benchmark-reference-runner: record-and-
+// continue). A load/evaluate failure is captured as a per-case error status plus an
+// advisory message and returned like any other outcome, so the caller's loop never
+// aborts and never voids the other cases' recorded results.
+function runOneCase({ benchmark, size, dataRoot, warmup, measurement, c }) {
+  try {
+    return timeCase({ benchmark, size, dataRoot, warmup, measurement, c })
+  } catch (err) {
+    // A thrown case is recorded, not fatal. loadResources/evaluate raising means the
+    // engine attempted the work and errored (execution_error), distinct from a
+    // timeout (budget) or malformed (unparseable inputs/outputs, surfaced elsewhere).
+    return { c, error: 'execution_error', message: String(err?.message ?? err) }
+  }
 }
 
 // Count the loaded resources of each declared resource type at this size — the
@@ -67,6 +92,18 @@ function observeResourceCounts({ benchmark, size, dataRoot }) {
   return counts
 }
 
+// resourceCounts is advisory traceability, NOT a case result: it must never be able
+// to abort buildReport after the cases were already processed (the #8 partial-run
+// guarantee). A missing/unreadable declared resource file degrades to {} so the
+// report is still emitted and validates, in contrast to bless's hard-fail path.
+function observeResourceCountsSafe(args) {
+  try {
+    return observeResourceCounts(args)
+  } catch {
+    return {}
+  }
+}
+
 export function buildReport({
   benchmark,
   size,
@@ -74,10 +111,24 @@ export function buildReport({
   checkfilePath,
   impl,
   scenario = 'preloaded_repeated',
+  caseFilter,
 }) {
   const { warmup, measurement } = benchmark.iterations || { warmup: 1, measurement: 5 }
   const checkfile = checkfilePath ? readCheckfile(checkfilePath) : null
-  const cases = runCases({ benchmark, size, dataRoot }).map(({ c, inputRows, outputRows, samplesMs }) => {
+  // Per-case failure isolation (benchmark-reference-runner): iterate the cases,
+  // running each under its own boundary and recording its outcome, so a failing
+  // case is recorded with its status and the run CONTINUES to the rest. caseFilter
+  // (optional) selects which cases are attempted; a partial run over a subset still
+  // yields a valid report of exactly the completed cases.
+  const selectedCases = caseFilter ? benchmark.cases.filter(caseFilter) : benchmark.cases
+  const cases = selectedCases.map((caseDef) => {
+    const outcome = runOneCase({ benchmark, size, dataRoot, warmup, measurement, c: caseDef })
+    const { c } = outcome
+    if (outcome.error) {
+      // A case that failed to run: record its error status and (advisory) message.
+      return { id: c.id, status: outcome.error, message: outcome.message }
+    }
+    const { inputRows, outputRows, samplesMs } = outcome
     const expected = assertionFor(checkfile, c.id, size)
     // Work-verification guard: present+match => ok; present+mismatch => count_mismatch;
     // absent => ok. A countVariancePermitted case (where/forEach-position reference)
@@ -112,7 +163,7 @@ export function buildReport({
       [benchmark.name]: {
         size,
         fhirVersion: benchmark.fhirVersion,
-        resourceCounts: observeResourceCounts({ benchmark, size, dataRoot }),
+        resourceCounts: observeResourceCountsSafe({ benchmark, size, dataRoot }),
         cases,
       },
     },

@@ -137,6 +137,50 @@ test('an invalid status value fails the schema', () => {
   expect(validate(bad)).toBe(false)
 })
 
+// ---- Wave 2 (#8): status taxonomy extension + optional per-case message ----
+
+test('a case status of timeout is accepted (Wave 2 enum extension)', () => {
+  const r = structuredClone(goodReport)
+  r.results['clinical-flat'].cases[0].status = 'timeout'
+  expect(validate(r)).toBe(true)
+})
+
+test('a case status of malformed is accepted (Wave 2 enum extension)', () => {
+  const r = structuredClone(goodReport)
+  r.results['clinical-flat'].cases[0].status = 'malformed'
+  expect(validate(r)).toBe(true)
+})
+
+test('all six status enum members are accepted', () => {
+  for (const status of [
+    'ok',
+    'count_mismatch',
+    'generation_error',
+    'execution_error',
+    'timeout',
+    'malformed',
+  ]) {
+    const r = structuredClone(goodReport)
+    r.results['clinical-flat'].cases[0].status = status
+    expect(validate(r)).toBe(true)
+  }
+})
+
+test('a case with a free-text message is accepted (message is optional context)', () => {
+  const r = structuredClone(goodReport)
+  const c = r.results['clinical-flat'].cases[0]
+  c.status = 'execution_error'
+  c.message = 'engine raised: unsupported fhirpath function frobnicate()'
+  expect(validate(r)).toBe(true)
+})
+
+test('a case WITHOUT a message is accepted (message is optional)', () => {
+  const r = structuredClone(goodReport)
+  const c = r.results['clinical-flat'].cases[0]
+  expect(c).not.toHaveProperty('message')
+  expect(validate(r)).toBe(true)
+})
+
 test('a per-case result must key on id, not title', () => {
   const bad = structuredClone(goodReport)
   delete bad.results['clinical-flat'].cases[0].id

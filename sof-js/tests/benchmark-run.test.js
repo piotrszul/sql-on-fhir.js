@@ -276,3 +276,126 @@ test('blessCheckfile writes the checkfile with counts, checksums and assertions;
 test('checkfileFor derives the checkfile path from the benchmark file path', () => {
   expect(checkfileFor('/bench/clinical-flat.json')).toBe('/bench/clinical-flat.check.json')
 })
+
+// ---- Wave 2 (#8): per-case failure isolation — record-and-continue ----
+
+// A benchmark whose FIRST case reads a resource type that was never materialized
+// (so loading its data throws) while the SECOND case reads the seeded Observation
+// data. Record-and-continue means the failing case is recorded with an error
+// status and the succeeding case still completes and is recorded.
+const mixedBenchmark = {
+  ...benchmark,
+  cases: [
+    {
+      id: 'missing-data',
+      title: 'reads a resource with no materialized file',
+      view: {
+        resource: 'Patient',
+        select: [{ column: [{ name: 'id', path: 'getResourceKey()', type: 'string' }] }],
+      },
+    },
+    {
+      id: 'obs',
+      title: 'obs',
+      view: {
+        resource: 'Observation',
+        select: [{ column: [{ name: 'id', path: 'getResourceKey()', type: 'string' }] }],
+      },
+    },
+  ],
+}
+
+test('a failing case is recorded with an error status and the run CONTINUES for the others', () => {
+  const dataRoot = seedData() // seeds Observation.ndjson but NOT Patient.ndjson
+  const report = buildReport({
+    benchmark: mixedBenchmark,
+    size: 's',
+    dataRoot,
+    impl: { engine: { name: 'sof-js', version: '2.0.0' } },
+  })
+  const cases = report.results['clinical-flat'].cases
+  // both cases are recorded — the failure did not abort the run or drop the survivor
+  expect(cases).toHaveLength(2)
+  const failed = cases.find((c) => c.id === 'missing-data')
+  const ok = cases.find((c) => c.id === 'obs')
+  expect(failed.status).toBe('execution_error')
+  expect(typeof failed.message).toBe('string')
+  expect(failed.message.length).toBeGreaterThan(0)
+  // the succeeding case is fully recorded with its real result
+  expect(ok.status).toBe('ok')
+  expect(ok.outputRows).toBe(2)
+  rmSync(dataRoot, { recursive: true, force: true })
+})
+
+test('a report from a run with a failing case still validates against the schema', () => {
+  const dataRoot = seedData()
+  const report = buildReport({
+    benchmark: mixedBenchmark,
+    size: 's',
+    dataRoot,
+    impl: { engine: { name: 'sof-js', version: '2.0.0' } },
+  })
+  expect(validateReport(report)).toBe(true)
+  rmSync(dataRoot, { recursive: true, force: true })
+})
+
+test('a partial run (only some cases completed) emits a schema-valid report of just those cases', () => {
+  const dataRoot = seedData()
+  // Simulate a run interrupted after only the first case completed by injecting a
+  // caseFilter that limits which cases are attempted; the emitted report contains
+  // ONLY that case, each with a status, and still validates.
+  const report = buildReport({
+    benchmark: mixedBenchmark,
+    size: 's',
+    dataRoot,
+    caseFilter: (c) => c.id === 'obs',
+    impl: { engine: { name: 'sof-js', version: '2.0.0' } },
+  })
+  const cases = report.results['clinical-flat'].cases
+  expect(cases).toHaveLength(1)
+  expect(cases[0].id).toBe('obs')
+  expect(cases[0]).toHaveProperty('status')
+  expect(validateReport(report)).toBe(true)
+  rmSync(dataRoot, { recursive: true, force: true })
+})
+
+// A benchmark that DECLARES a dataset resource type whose materialized file is
+// absent. observeResourceCounts iterates dataset.resources; a missing file there
+// would throw AFTER all cases were processed — voiding the completed cases array
+// and breaking the partial-run-valid guarantee (#8). It must be failure-isolated.
+const missingDatasetResourceBenchmark = {
+  ...benchmark,
+  dataset: { ...benchmark.dataset, resources: ['Observation', 'Patient'] },
+}
+
+test('a missing dataset resource file does not void the completed cases (resourceCounts is isolated)', () => {
+  const dataRoot = seedData() // seeds Observation.ndjson but NOT Patient.ndjson
+  const report = buildReport({
+    benchmark: missingDatasetResourceBenchmark,
+    size: 's',
+    dataRoot,
+    impl: { engine: { name: 'sof-js', version: '2.0.0' } },
+  })
+  const res = report.results['clinical-flat']
+  // the cases (which loaded Observation fine) are intact despite the missing Patient file
+  expect(res.cases).toHaveLength(2)
+  expect(res.cases.find((c) => c.id === 'obs').status).toBe('ok')
+  // resourceCounts degrades to an empty object rather than aborting the whole report
+  expect(res.resourceCounts).toEqual({})
+  // and the report still validates against the schema
+  expect(validateReport(report)).toBe(true)
+  rmSync(dataRoot, { recursive: true, force: true })
+})
+
+// The intentional contrast to buildReport's record-and-continue isolation:
+// blessCheckfile (via the non-isolated runCases path) is all-or-nothing. A missing
+// data file at bless time is a HARD failure, not a per-case recorded error — bless
+// must never write a checkfile from an incomplete run.
+test('blessCheckfile HARD-fails when a case resource file is absent (no isolation)', () => {
+  const dataRoot = seedData() // seeds Observation.ndjson but NOT Patient.ndjson
+  const cfPath = checkfilePath(dataRoot)
+  expect(() =>
+    blessCheckfile({ benchmark: mixedBenchmark, size: 's', dataRoot, checkfilePath: cfPath }),
+  ).toThrow()
+  rmSync(dataRoot, { recursive: true, force: true })
+})

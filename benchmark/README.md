@@ -15,8 +15,15 @@ checked in.
 
 ## Materialize data
 
-1. `cp tools/executors.config.sample.json tools/executors.config.json` and point
-   `jar` at `synthea-with-dependencies-3.2.0.jar` (needs Java).
+Needs Java on the PATH. The materializer auto-fetches the pinned Synthea jar
+(the version in the recipe's `dataset.syntheaVersion`) from its published GitHub
+release, checksum-verifies it against a committed pin, and caches it under
+`benchmark/.cache/synthea/` (gitignored) — so no manual jar download is required.
+
+1. (OPTIONAL) `cp tools/executors.config.sample.json tools/executors.config.json`
+   to override the auto-fetch — point `jar` at a locally-built
+   `synthea-with-dependencies-<version>.jar` and/or set a non-default `java`
+   binary. With no config, the jar is auto-fetched.
 2. `bun run data <file|--group NAME> --size <s|m|...>`
 
 Output: `data/<name>_<hash>/<size>/<ResourceType>.ndjson` + `manifest.json`.

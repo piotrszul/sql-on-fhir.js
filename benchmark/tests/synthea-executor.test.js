@@ -10,7 +10,7 @@ const guarded = config?.synthea?.jar && existsSync(config.synthea.jar) ? test : 
 guarded(
   'synthea executor generates Patient.ndjson for a tiny population',
   async () => {
-    const exec = makeSyntheaExecutor(config.synthea)
+    const exec = makeSyntheaExecutor({ config: config.synthea })
     const out = mkdtempSync(join(tmpdir(), 'synthea-it-'))
     await exec(
       {
@@ -67,14 +67,14 @@ async function captureCall(recipe) {
   installSpawnSpy()
   // re-import after mocking so the executor picks up the spy
   const { makeSyntheaExecutor: make } = await import('../tools/executors/synthea.js')
-  const exec = make({ java: 'java', jar: '/fake/synthea.jar' })
+  const exec = make({ config: { java: 'java', jar: '/fake/synthea.jar' } })
   const out = mkdtempSync(join(tmpdir(), 'synthea-args-'))
   try {
     await exec(recipe, 1, out)
   } finally {
     rmSync(out, { recursive: true, force: true })
   }
-  return { args: capturedArgs, options: capturedOptions }
+  return { args: capturedArgs, options: capturedOptions, out }
 }
 
 test('synthea executor sets TZ=UTC in the child process environment', async () => {
@@ -160,6 +160,69 @@ test('no synthea arg leaks the literal "undefined" for a fully-declared recipe',
     },
   })
   expect(args.every((a) => !String(a).includes('undefined'))).toBe(true)
+})
+
+// --- Wave 2 (#10 / #4): isolated CWD + auto-fetch wiring ---
+
+test('synthea executor runs in an isolated working directory, not the repo root', async () => {
+  // Synthea scatters db.sqlite and public/export/ into its PROCESS CWD. The executor
+  // must set cwd to the exact staging dir (outDir) it was handed — an isolated scratch
+  // dir outside the repo tree — so those artifacts never land in the repo root.
+  const { options, out } = await captureCall({ params: { endTime: 20250101 } })
+  expect(options?.cwd).toBeDefined()
+  // pin the behaviour: cwd is precisely the outDir the executor is called with,
+  // not merely "somewhere that isn't the repo root".
+  expect(options.cwd).toBe(out)
+})
+
+test('makeSyntheaExecutor with no config jar auto-fetches the pinned jar via resolveSyntheaJar', async () => {
+  installSpawnSpy()
+  const { makeSyntheaExecutor: make } = await import('../tools/executors/synthea.js')
+  const mkdtemp = mkdtempSync(join(tmpdir(), 'synthea-cache-'))
+  let resolved = null
+  // inject a fetchImpl-backed resolve path by pointing at a fake pinned jar the
+  // executor will treat as the resolved jar; no config jar is supplied.
+  const fakeJar = join(mkdtemp, 'fake-synthea.jar')
+  writeFileSync(fakeJar, 'jar')
+  const exec = make({
+    config: null,
+    resolveJar: async ({ syntheaVersion }) => {
+      resolved = syntheaVersion
+      return { jar: fakeJar, java: 'java', fetched: true }
+    },
+  })
+  const out = mkdtempSync(join(tmpdir(), 'synthea-out-'))
+  try {
+    await exec({ params: { endTime: 20250101 }, syntheaVersion: '3.2.0' }, 1, out)
+  } finally {
+    rmSync(out, { recursive: true, force: true })
+    rmSync(mkdtemp, { recursive: true, force: true })
+  }
+  expect(resolved).toBe('3.2.0') // the pinned version was resolved
+  expect(capturedArgs).toContain(fakeJar) // the resolved jar was passed to java -jar
+})
+
+test('makeSyntheaExecutor with a config jar uses it and never triggers a network fetch', async () => {
+  // config-wins is enforced inside resolveSyntheaJar (unit-tested in
+  // synthea-releases.test.js). Here we drive the REAL resolver with an injected
+  // fetchImpl and assert the config jar is used and the network fetch never fires.
+  installSpawnSpy()
+  const { makeSyntheaExecutor: make } = await import('../tools/executors/synthea.js')
+  const { resolveSyntheaJar } = await import('../tools/executors/synthea-releases.js')
+  let fetched = false
+  const exec = make({
+    config: { jar: '/opt/synthea.jar', java: 'java' },
+    resolveJar: (a) =>
+      resolveSyntheaJar({ ...a, fetchImpl: async () => ((fetched = true), Buffer.from('x')) }),
+  })
+  const out = mkdtempSync(join(tmpdir(), 'synthea-out-'))
+  try {
+    await exec({ params: { endTime: 20250101 }, syntheaVersion: '3.2.0' }, 1, out)
+  } finally {
+    rmSync(out, { recursive: true, force: true })
+  }
+  expect(fetched).toBe(false) // config short-circuits the network fetch
+  expect(capturedArgs).toContain('/opt/synthea.jar')
 })
 
 test('synthea invocation is wall-clock-independent: same recipe → identical args', async () => {
