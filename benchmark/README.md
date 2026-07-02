@@ -26,9 +26,10 @@ release, checksum-verifies it against a committed pin, and caches it under
    binary. With no config, the jar is auto-fetched.
 2. `bun run data <file|--group NAME> --size <s|m|...>`
 
-Output: `data/<name>_<hash>/<size>/<ResourceType>.ndjson` + `manifest.json`.
-`<size>` selects the population; `<hash>` is the recipe content hash (identical
-recipes dedupe). Only the recipe's `resources` are kept; siblings are pruned.
+Output: `data/<name>/<version>/<size>/<ResourceType>.ndjson` + `manifest.json`.
+`<size>` selects the population; `<version>` is the authored dataset version
+(`dataset.version`, bumped deliberately when the recipe should re-generate). Only
+the recipe's `resources` are kept; siblings are pruned.
 
 ## Run a benchmark (the runner contract)
 
