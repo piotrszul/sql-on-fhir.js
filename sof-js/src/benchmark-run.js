@@ -8,6 +8,7 @@ import {
   assertionFor,
   verifyChecksums,
 } from '../../benchmark/tools/checkfile.js'
+import { writeJmhExports } from './jmh.js'
 
 // The runner locates a case's data at data/<name>/<version>/<size>/ using the
 // dataset's explicit name + version — it NEVER re-derives a content hash.
@@ -206,6 +207,7 @@ if (import.meta.main) {
     else if (args[i] === '--record') opts.record = true
     else if (args[i] === '--strict') opts.strict = true
     else if (args[i] === '--data') opts.dataRoot = args[++i]
+    else if (args[i] === '--jmh') opts.jmhDir = args[++i]
     else opts.path = args[i]
   }
   const benchmark = JSON.parse(readFileSync(opts.path, 'utf8'))
@@ -235,5 +237,11 @@ if (import.meta.main) {
       impl: { engine: { name: 'sof-js', version: '2.0.0' } },
     })
     console.log(JSON.stringify(report, null, 2))
+    // Optional convenience: after producing the native report (the source of
+    // truth), also emit the JMH projection via the SAME pure function.
+    if (opts.jmhDir) {
+      const written = writeJmhExports(report, opts.jmhDir)
+      console.error(`wrote ${written.length} JMH file(s) to ${opts.jmhDir}`)
+    }
   }
 }
