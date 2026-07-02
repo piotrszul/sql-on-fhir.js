@@ -25,23 +25,36 @@ JVM engine is a binding, not a distinct engine); `implementation.variant`
 benchmark file's case `id` and the checkfile assertion key) and a `status` that is
 one of `ok`, `count_mismatch`, `generation_error`, `execution_error`, `timeout`,
 or `malformed`, and MAY declare `inputRows`, `outputRows`, `samplesMs`, `stats`,
-`phaseSamplesMs`, and an OPTIONAL free-text `message`. The status values are
-defined as: `ok` (the case ran and its output row count matched its checkfile
-assertion, or none was present); `count_mismatch` (the output row count differed
-from a present, non-variance-permitted checkfile assertion); `generation_error`
-(generation failed to produce the case's input data); `execution_error` (the
-engine ran and raised while executing the case); `timeout` (the case exceeded a
-time budget on generation or execution and was abandoned — distinct from
-`execution_error`, where the engine actually ran and raised); and `malformed` (the
-case's inputs or outputs were structurally invalid — for example a materialized
-resource that will not parse, or a result that cannot be materialized to the sink
-— distinct from `generation_error`, where generation produced no data at all). The
-OPTIONAL `message` is a short human-readable explanation of a non-`ok` outcome
-(most useful for `generation_error`, `execution_error`, `timeout`, and
-`malformed`); it is advisory context for a human reader, never a machine-parsed
-field, and an `ok` case omits it. A report containing only the cases a run
-completed — each with its status — is schema-valid and meaningful, so a partial or
-interrupted run still produces a conforming report.
+`phaseSamplesMs`, and an OPTIONAL free-text `message`. The status taxonomy is
+AVAILABLE-not-REQUIRED: `execution_error` is the ALWAYS-CONFORMANT DEFAULT for ANY
+failure to load, prepare, or evaluate a case, and a runner that records every
+non-`ok` failure as `execution_error` is fully conformant. `timeout` and
+`malformed` are OPTIONAL refinements a runner MAY apply WHEN it can cheaply
+distinguish them; producing the finer statuses is a quality-of-diagnostics nicety,
+NOT a contract obligation. Classification is BEST-EFFORT: a runner MAY report
+`execution_error` for a failure it cannot cheaply prove is `malformed` (or
+`timeout`) — for example, on a lazy, strongly-typed engine an unparseable input and
+an engine evaluation error are indistinguishable at the catch site, so a runner is
+not obliged to build a permissive non-lazy parser purely to tell them apart. The
+status values are defined as: `ok` (the case ran and its output row count matched
+its checkfile assertion, or none was present); `count_mismatch` (the output row
+count differed from a present, non-variance-permitted checkfile assertion);
+`generation_error` (generation failed to produce the case's input data);
+`execution_error` (the engine ran and raised while executing the case, OR — as the
+conformant default — any load/prepare/evaluate failure a runner does not further
+classify); `timeout` (an OPTIONAL label a runner MAY apply when it abandons a case
+under its OWN out-of-band wall-clock budget, e.g. to stop a runaway — keyed off the
+runner's own budget, NOT any authored/contract budget field, of which there is
+none); and `malformed` (an OPTIONAL label a runner MAY apply when it can cheaply
+establish that the case's inputs or outputs were structurally invalid — for example
+a materialized resource that will not parse, or a result that cannot be
+materialized to the sink — distinct from `generation_error`, where generation
+produced no data at all). The OPTIONAL `message` is a short human-readable
+explanation of a non-`ok` outcome (most useful for `generation_error`,
+`execution_error`, `timeout`, and `malformed`); it is advisory context for a human
+reader, never a machine-parsed field, and an `ok` case omits it. A report
+containing only the cases a run completed — each with its status — is schema-valid
+and meaningful, so a partial or interrupted run still produces a conforming report.
 
 #### Scenario: Well-formed report is accepted
 
@@ -68,6 +81,30 @@ interrupted run still produces a conforming report.
 - **THEN** schema validation passes, because both are members of the six-value
   taxonomy `{ok, count_mismatch, generation_error, execution_error, timeout,
   malformed}`
+
+#### Scenario: execution_error is the conformant default for any failure
+
+- **WHEN** a runner records every non-`ok` failure — a load failure, a prepare
+  failure, or an engine evaluation error — as `execution_error`, applying neither
+  `timeout` nor `malformed`
+- **THEN** the report is fully conformant, because `timeout` and `malformed` are
+  OPTIONAL refinements and `execution_error` is the always-conformant default
+
+#### Scenario: Finer classification is best-effort, not required
+
+- **WHEN** a runner cannot cheaply prove whether a failure was a structurally
+  invalid input (`malformed`) or an engine evaluation error, as on a lazy
+  strongly-typed engine where both surface at the same catch site
+- **THEN** reporting the failure as `execution_error` is conformant; the runner is
+  not obliged to distinguish `malformed` (or `timeout`)
+
+#### Scenario: timeout is keyed off the runner's own out-of-band budget
+
+- **WHEN** a runner abandons a runaway case under its OWN wall-clock budget and
+  labels it `timeout`
+- **THEN** that is conformant; `timeout` is keyed off the runner's own out-of-band
+  budget, not off any authored/contract budget field — the contract defines no such
+  budget field
 
 #### Scenario: message is optional
 
