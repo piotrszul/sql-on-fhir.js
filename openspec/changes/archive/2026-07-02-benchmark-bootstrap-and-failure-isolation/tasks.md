@@ -6,13 +6,13 @@ green step.
 
 ## 0. Gate A — design sign-off (blocks all below)
 
-- [ ] 0.1 Human confirms the `timeout`/`malformed` status definitions and the
+- [x] 0.1 Human confirms the `timeout`/`malformed` status definitions and the
   addition of an OPTIONAL per-case `message` (proposed: yes) as in `design.md`
   D-B/D-C
-- [ ] 0.2 Human confirms the jar cache location (`benchmark/.cache/synthea/`
+- [x] 0.2 Human confirms the jar cache location (`benchmark/.cache/synthea/`
   proposed) and recording the pin as a committed `syntheaVersion → { url, sha256 }`
   map in the tooling (D-D)
-- [ ] 0.3 Human confirms the isolated-CWD mechanism: per-materialization temp dir
+- [x] 0.3 Human confirms the isolated-CWD mechanism: per-materialization temp dir
   (proposed) vs a fixed gitignored scratch dir (D-E)
 
 ## 1. Report schema — status enum + optional message — TDD
