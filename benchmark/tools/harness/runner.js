@@ -73,12 +73,12 @@ export async function runSuite({
   const cases = caseFilter ? benchmark.cases.filter(caseFilter) : benchmark.cases
   const workDir = mkdtempSync(join(tmpdir(), 'sof-harness-'))
 
-  const ctx = { manifest, scenario, dataDir, resources: benchmark.dataset.resources, inactivityMs }
-  const resourceCounts = observeResourceCounts(dataDir, benchmark.dataset.resources)
+  const resources = benchmark.dataset.resources
+  const resourceCounts = observeResourceCounts(dataDir, resources)
 
   let results
   try {
-    const loop = scenario === 'end_to_end' ? runCaseEndToEnd : runCasePreloaded
+    const runCase = scenario === 'end_to_end' ? runCaseEndToEnd : runCasePreloaded
     const state = { worker: null }
     results = []
     for (const c of cases) {
@@ -87,7 +87,7 @@ export async function runSuite({
       // recorded with its own status; a failure never aborts the run.
       let entry
       try {
-        entry = await loop({ ctx, state, c, outCsv, warmup, measurement })
+        entry = await runCase(c, outCsv, state)
       } catch (err) {
         if (err instanceof SuiteError) throw err
         // An untrusted or dead worker is discarded; the next case respawns.
@@ -103,13 +103,6 @@ export async function runSuite({
   } finally {
     rmSync(workDir, { recursive: true, force: true })
   }
-
-  const finished = results.map((entry) => {
-    if (entry.samplesMs == null) return entry
-    const { expected, variancePermitted, ...rest } = entry
-    const verdict = verdictFor(entry)
-    return { ...rest, ...verdict, stats: statsOf(entry.samplesMs) }
-  })
 
   return {
     implementation: manifest.implementation,
@@ -129,7 +122,7 @@ export async function runSuite({
         size,
         fhirVersion: benchmark.fhirVersion,
         resourceCounts,
-        cases: finished,
+        cases: results,
       },
     },
   }
@@ -138,57 +131,51 @@ export async function runSuite({
 
   // preloaded_repeated: one long-lived worker; spawn + prepare OUTSIDE every
   // timed region; each measured sample wall-clocks one `run` round-trip.
-  async function runCasePreloaded({ ctx, state, c, outCsv, warmup, measurement }) {
-    if (!state.worker) state.worker = await spawnPrepared(ctx)
+  async function runCasePreloaded(c, outCsv, state) {
+    if (!state.worker) state.worker = await spawnPrepared()
     const worker = state.worker
     const runCmd = { cmd: 'run', view: c.view, outCsv }
-    for (let i = 0; i < warmup; i++) await sendChecked(worker, runCmd, ctx.inactivityMs)
-    const { samplesMs, phaseSamplesMs, lastResp } = await measure(
-      worker,
-      runCmd,
-      measurement,
-      ctx.inactivityMs,
-    )
-    return finishEntry({ ctx, c, outCsv, samplesMs, phaseSamplesMs, lastResp })
+    for (let i = 0; i < warmup; i++) await sendChecked(worker, runCmd, inactivityMs)
+    const measured = await sampleLoop(async () => {
+      const t0 = performance.now()
+      const resp = await sendChecked(worker, runCmd, inactivityMs)
+      return { ms: performance.now() - t0, resp }
+    })
+    return finishEntry(c, outCsv, measured)
   }
 
   // end_to_end: a FRESH worker per sample (spawn untimed — VM boot is not ETL
   // cost), the prepare + run round-trips timed together, restart between
   // samples so every sample is dataset-cold by construction. Warmup is ignored.
-  async function runCaseEndToEnd({ ctx, c, outCsv, measurement }) {
-    const samplesMs = []
-    const phaseAcc = {}
-    let lastResp
-    for (let i = 0; i < measurement; i++) {
-      const worker = await spawnGated(ctx)
+  async function runCaseEndToEnd(c, outCsv) {
+    const measured = await sampleLoop(async () => {
+      const worker = await spawnGated()
       try {
         const t0 = performance.now()
-        await sendChecked(
-          worker,
-          { cmd: 'prepare', dataDir: ctx.dataDir, resources: ctx.resources },
-          ctx.inactivityMs,
-        )
-        lastResp = await sendChecked(worker, { cmd: 'run', view: c.view, outCsv }, ctx.inactivityMs)
-        samplesMs.push(performance.now() - t0)
-        accumulatePhases(phaseAcc, lastResp.phasesMs)
+        await sendChecked(worker, { cmd: 'prepare', dataDir, resources }, inactivityMs)
+        const resp = await sendChecked(worker, { cmd: 'run', view: c.view, outCsv }, inactivityMs)
+        return { ms: performance.now() - t0, resp }
       } finally {
         await worker.shutdown()
       }
-    }
-    return finishEntry({ ctx, c, outCsv, samplesMs, phaseSamplesMs: phaseAcc, lastResp })
+    })
+    return finishEntry(c, outCsv, measured)
   }
 
-  async function measure(worker, runCmd, measurement, inactivityMs) {
+  // The shared measurement loop: `measurement` timed samples, each produced by a
+  // scenario-supplied `sample()` that owns its timed region and returns
+  // { ms, resp }. Advisory per-phase splits accumulate here, never into samplesMs.
+  async function sampleLoop(sample) {
     const samplesMs = []
-    const phaseAcc = {}
+    const phaseSamplesMs = {}
     let lastResp
     for (let i = 0; i < measurement; i++) {
-      const t0 = performance.now()
-      lastResp = await sendChecked(worker, runCmd, inactivityMs)
-      samplesMs.push(performance.now() - t0)
-      accumulatePhases(phaseAcc, lastResp.phasesMs)
+      const { ms, resp } = await sample()
+      samplesMs.push(ms)
+      lastResp = resp
+      accumulatePhases(phaseSamplesMs, resp.phasesMs)
     }
-    return { samplesMs, phaseSamplesMs: phaseAcc, lastResp }
+    return { samplesMs, phaseSamplesMs, lastResp }
   }
 
   // Advisory diagnostics only (benchmark-hook-format): hook-reported per-phase
@@ -198,15 +185,14 @@ export async function runSuite({
     for (const [phase, ms] of Object.entries(phasesMs)) (acc[phase] ??= []).push(ms)
   }
 
-  function finishEntry({ ctx, c, outCsv, samplesMs, phaseSamplesMs, lastResp }) {
+  function finishEntry(c, outCsv, { samplesMs, phaseSamplesMs, lastResp }) {
     const outputRows = countCsvRows(outCsv)
-    const entry = {
-      id: c.id,
+    const verdict = verdictFor({
       outputRows,
-      samplesMs,
       expected: assertionFor(checkfile, c.id, size),
       variancePermitted: !!c.countVariancePermitted,
-    }
+    })
+    const entry = { id: c.id, ...verdict, outputRows, samplesMs, stats: statsOf(samplesMs) }
     if (resourceCounts[c.view.resource] != null) entry.inputRows = resourceCounts[c.view.resource]
     if (Object.keys(phaseSamplesMs).length) entry.phaseSamplesMs = phaseSamplesMs
     if (lastResp?.outputRows != null && lastResp.outputRows !== outputRows) {
@@ -217,12 +203,12 @@ export async function runSuite({
 
   // Spawn + capabilities gate: the harness never drives a hook through a
   // scenario it did not declare (benchmark-hook-format).
-  async function spawnGated(ctx) {
-    const worker = spawnWorker(ctx.manifest)
+  async function spawnGated() {
+    const worker = spawnWorker(manifest)
     try {
-      const caps = await sendChecked(worker, { cmd: 'capabilities' }, ctx.inactivityMs)
-      if (!caps.scenarios?.includes(ctx.scenario)) {
-        throw new SuiteError(`hook does not declare scenario "${ctx.scenario}" (declares: ${caps.scenarios})`)
+      const caps = await sendChecked(worker, { cmd: 'capabilities' }, inactivityMs)
+      if (!caps.scenarios?.includes(scenario)) {
+        throw new SuiteError(`hook does not declare scenario "${scenario}" (declares: ${caps.scenarios})`)
       }
       return worker
     } catch (err) {
@@ -231,14 +217,10 @@ export async function runSuite({
     }
   }
 
-  async function spawnPrepared(ctx) {
-    const worker = await spawnGated(ctx)
+  async function spawnPrepared() {
+    const worker = await spawnGated()
     try {
-      await sendChecked(
-        worker,
-        { cmd: 'prepare', dataDir: ctx.dataDir, resources: ctx.resources },
-        ctx.inactivityMs,
-      )
+      await sendChecked(worker, { cmd: 'prepare', dataDir, resources }, inactivityMs)
       return worker
     } catch (err) {
       worker.kill()

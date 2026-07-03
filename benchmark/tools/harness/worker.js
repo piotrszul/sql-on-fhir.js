@@ -24,16 +24,24 @@ export function spawnWorker(manifest) {
   let exited = false
   const exitWaiters = []
 
-  function settle(fn, err) {
+  // Resolve/reject the in-flight command exactly once, clearing its timer. Both
+  // paths null `pending` first so a late timer or exit can never double-settle.
+  function resolvePending(msg) {
     const p = pending
     pending = null
     if (p?.timer) clearTimeout(p.timer)
-    if (p) fn === 'resolve' ? p.resolve(err) : p.reject(err)
+    p?.resolve(msg)
+  }
+  function rejectPending(err) {
+    const p = pending
+    pending = null
+    if (p?.timer) clearTimeout(p.timer)
+    p?.reject(err)
   }
 
   child.on('exit', () => {
     exited = true
-    settle('reject', new WorkerCrash('worker exited while a command was in flight'))
+    rejectPending(new WorkerCrash('worker exited while a command was in flight'))
     for (const w of exitWaiters.splice(0)) w()
   })
 
@@ -49,10 +57,10 @@ export function spawnWorker(manifest) {
       try {
         msg = JSON.parse(line)
       } catch {
-        settle('reject', new ProtocolError(`non-JSON protocol line on stdout: ${line.slice(0, 120)}`))
+        rejectPending(new ProtocolError(`non-JSON protocol line on stdout: ${line.slice(0, 120)}`))
         continue
       }
-      settle('resolve', msg)
+      resolvePending(msg)
     }
   })
 
@@ -70,12 +78,7 @@ export function spawnWorker(manifest) {
       if (pending) return Promise.reject(new ProtocolError('a command is already in flight'))
       return new Promise((resolve, reject) => {
         const timer = timeoutMs
-          ? setTimeout(() => {
-              if (pending) {
-                pending = null
-                reject(new WorkerTimeout(`no response within ${timeoutMs}ms`))
-              }
-            }, timeoutMs)
+          ? setTimeout(() => rejectPending(new WorkerTimeout(`no response within ${timeoutMs}ms`)), timeoutMs)
           : null
         pending = { resolve, reject, timer }
         child.stdin.write(JSON.stringify(cmd) + '\n')

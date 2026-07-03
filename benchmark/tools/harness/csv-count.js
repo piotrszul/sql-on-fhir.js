@@ -12,16 +12,14 @@ export function countCsvRows(path) {
   if (txt.length === 0) return 0
   let boundaries = 0
   let inQuotes = false
-  let lastNewline = -1
   for (let i = 0; i < txt.length; i++) {
     const ch = txt[i]
     if (ch === '"') inQuotes = !inQuotes
-    else if (ch === '\n' && !inQuotes) {
-      boundaries++
-      lastNewline = i
-    }
+    else if (ch === '\n' && !inQuotes) boundaries++
   }
   // A trailing newline terminates the last row rather than starting a new one.
-  const lines = lastNewline === txt.length - 1 ? boundaries : boundaries + 1
+  // (At a well-formed EOF quotes are always balanced, so the final `\n` — if any
+  // — is necessarily an unquoted row boundary already counted above.)
+  const lines = txt.endsWith('\n') ? boundaries : boundaries + 1
   return Math.max(0, lines - 1)
 }
