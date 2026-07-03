@@ -1,7 +1,7 @@
-import { startServer } from './server.js';
+import { startServer } from './server.js'
 
-const config = {    
+const config = {
   port: 3000,
-};
+}
 
 startServer(config)

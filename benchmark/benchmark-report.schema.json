@@ -109,7 +109,7 @@
                 },
                 "stats": {
                   "type": "object",
-                  "description": "Defined basic-statistics shape, exactly {mean, stddev, min, max, median} — no other keys are permitted (additionalProperties is false, so p95, ci95 or any extra property is rejected). median replaces the former required p50. Projectable onto a JMH primaryMetric: score=mean, scorePercentiles from median plus min/max, rawData=samplesMs; a consumer recomputes any richer percentiles AND the confidence interval / scoreError from the raw samplesMs, which remain in the report.",
+                  "description": "Defined basic-statistics shape: {mean, stddev, min, max, median} are REQUIRED (median replaces the former required p50); fields beyond the five are PERMITTED so the shape can evolve additively, but no consumer may rely on them — cross-implementation comparison uses only the required fields and the raw samplesMs. Projectable onto a JMH primaryMetric: score=mean, scorePercentiles from median plus min/max, rawData=samplesMs; a consumer recomputes any richer percentiles AND the confidence interval / scoreError from the raw samplesMs, which remain in the report.",
                   "required": ["mean", "stddev", "min", "max", "median"],
                   "properties": {
                     "mean": { "type": "number" },
@@ -117,10 +117,13 @@
                     "max": { "type": "number" },
                     "stddev": { "type": "number" },
                     "median": { "type": "number" }
-                  },
-                  "additionalProperties": false
+                  }
                 },
-                "phaseSamplesMs": { "type": "object" }
+                "phaseSamplesMs": { "type": "object" },
+                "verified": {
+                  "type": "boolean",
+                  "description": "Whether the work-verification guard consulted a checkfile assertion for this case and size: true = an assertion was present and the status reflects a real comparison; false or absent = no assertion was consulted, so an ok is UNVERIFIED. Optional and additive."
+                }
               },
               "additionalProperties": false
             }

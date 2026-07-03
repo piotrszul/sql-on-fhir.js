@@ -1,0 +1,45 @@
+{
+  "$id": "https://sql-on-fhir.org/ig/benchmark-hook",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SQL on FHIR benchmark hook manifest schema",
+  "description": "Declarative manifest describing a benchmark hook: the worker command the harness spawns and the STATIC identity of the implementation under test. The harness copies `implementation` into the emitted report verbatim. The worker protocol itself (line-delimited JSON over stdio) is specified in the benchmark-hook-format capability.",
+  "type": "object",
+  "required": ["command", "implementation"],
+  "definitions": {
+    "nameVersion": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": { "name": { "type": "string" }, "version": { "type": "string" } },
+      "additionalProperties": false
+    }
+  },
+  "properties": {
+    "command": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1,
+      "description": "argv array to spawn the worker; the first element is the executable. Resolved relative to `cwd`."
+    },
+    "cwd": {
+      "type": "string",
+      "description": "Working directory for the worker. A relative path is resolved against the manifest file's own directory (the default)."
+    },
+    "env": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "Extra environment variables for the worker process, merged over the harness's environment."
+    },
+    "implementation": {
+      "type": "object",
+      "description": "Static identity of the implementation under test, in the report format's structured shape; copied verbatim into the report's `implementation`.",
+      "required": ["engine"],
+      "properties": {
+        "engine": { "$ref": "#/definitions/nameVersion" },
+        "binding": { "$ref": "#/definitions/nameVersion" },
+        "variant": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

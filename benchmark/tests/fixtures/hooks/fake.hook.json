@@ -1,0 +1,8 @@
+{
+  "command": ["bun", "fake-hook.js"],
+  "env": { "FAKE_TOKEN": "tok" },
+  "implementation": {
+    "engine": { "name": "fake-engine", "version": "0.0.1" },
+    "variant": "test"
+  }
+}

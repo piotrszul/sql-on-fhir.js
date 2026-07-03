@@ -1,4 +1,4 @@
-// Thin CLI over the pure JMH projection (src/jmh.js): read a native
+// Thin CLI over the pure JMH projection (tools/harness/jmh.js): read a native
 // benchmark-report.json from disk, project it, and write the JMH files to an
 // output directory. The projection logic is NOT duplicated here — this only does
 // argument parsing and file I/O.
