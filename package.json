@@ -13,6 +13,7 @@
     "bench:test": "cd benchmark && bun test",
     "bench:validate": "cd benchmark && bun run validate",
     "bench:run": "cd sof-js && bun run src/benchmark-run.js",
+    "jmh": "cd sof-js && bun run src/jmh-cli.js",
     "bench:data": "cd benchmark && bun run data"
   },
   "author": "John Grimes",
