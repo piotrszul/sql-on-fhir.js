@@ -45,6 +45,15 @@ export function spawnWorker(manifest) {
     for (const w of exitWaiters.splice(0)) w()
   })
 
+  // A spawn failure emits 'error' and never 'exit', so it must be terminal here:
+  // otherwise the in-flight command burns its whole inactivity budget and
+  // waitExit()/shutdown() hang forever on a process that never ran.
+  child.on('error', (err) => {
+    exited = true
+    rejectPending(new WorkerCrash(`worker failed to start or died: ${err.message}`))
+    for (const w of exitWaiters.splice(0)) w()
+  })
+
   child.stdout.on('data', (chunk) => {
     buffer += chunk.toString()
     let idx
@@ -86,21 +95,31 @@ export function spawnWorker(manifest) {
     },
 
     // Ask the worker to exit (benchmark-hook-format: shutdown -> release + exit 0);
-    // escalate to SIGTERM if it lingers. No response line is required.
+    // escalate to SIGTERM if it lingers, then SIGKILL, so a worker that traps or
+    // ignores SIGTERM can never hang the harness. No response line is required.
     async shutdown({ graceMs = 2000 } = {}) {
       if (exited) return
       try {
         child.stdin.write(JSON.stringify({ cmd: 'shutdown' }) + '\n')
       } catch {
-        // stdin already gone: fall through to the SIGTERM escalation below
+        // stdin already gone: fall through to the signal escalation below
       }
-      const timer = setTimeout(() => child.kill('SIGTERM'), graceMs)
+      const term = setTimeout(() => child.kill('SIGTERM'), graceMs)
+      const kill = setTimeout(() => child.kill('SIGKILL'), graceMs * 2)
       await this.waitExit()
-      clearTimeout(timer)
+      clearTimeout(term)
+      clearTimeout(kill)
     },
 
-    kill() {
-      if (!exited) child.kill('SIGTERM')
+    kill({ graceMs = 2000 } = {}) {
+      if (exited) return
+      child.kill('SIGTERM')
+      // Fire-and-forget escalation: unref'd so an already-dying worker never
+      // keeps the harness process alive just to deliver a redundant SIGKILL.
+      const kill = setTimeout(() => {
+        if (!exited) child.kill('SIGKILL')
+      }, graceMs)
+      kill.unref?.()
     },
 
     waitExit() {

@@ -79,7 +79,7 @@ export async function runSuite({
   let results
   try {
     const runCase = scenario === 'end_to_end' ? runCaseEndToEnd : runCasePreloaded
-    const state = { worker: null }
+    const state = { worker: null, prepared: null }
     results = []
     for (const c of cases) {
       const outCsv = join(workDir, `${c.id}.csv`)
@@ -131,9 +131,20 @@ export async function runSuite({
 
   // preloaded_repeated: one long-lived worker; spawn + prepare OUTSIDE every
   // timed region; each measured sample wall-clocks one `run` round-trip.
+  // Prepare is lazy and per-resource so a missing/broken resource file fails
+  // only the cases that query it (per-case failure isolation), never the run.
   async function runCasePreloaded(c, outCsv, state) {
-    if (!state.worker) state.worker = await spawnPrepared()
+    if (!state.worker) {
+      state.worker = await spawnGated()
+      state.prepared = new Set()
+    }
     const worker = state.worker
+    // Only declared dataset resources are preparable; a view against anything
+    // else is the hook's to answer (ok:false), not the harness's to prepare.
+    if (resources.includes(c.view.resource) && !state.prepared.has(c.view.resource)) {
+      await sendChecked(worker, { cmd: 'prepare', dataDir, resources: [c.view.resource] }, inactivityMs)
+      state.prepared.add(c.view.resource)
+    }
     const runCmd = { cmd: 'run', view: c.view, outCsv }
     for (let i = 0; i < warmup; i++) await sendChecked(worker, runCmd, inactivityMs)
     const measured = await sampleLoop(async () => {
@@ -210,17 +221,6 @@ export async function runSuite({
       if (!caps.scenarios?.includes(scenario)) {
         throw new SuiteError(`hook does not declare scenario "${scenario}" (declares: ${caps.scenarios})`)
       }
-      return worker
-    } catch (err) {
-      worker.kill()
-      throw err
-    }
-  }
-
-  async function spawnPrepared() {
-    const worker = await spawnGated()
-    try {
-      await sendChecked(worker, { cmd: 'prepare', dataDir, resources }, inactivityMs)
       return worker
     } catch (err) {
       worker.kill()

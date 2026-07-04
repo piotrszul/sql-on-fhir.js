@@ -127,6 +127,38 @@ test('end-to-end smoke: fixture data -> harness + sof-js hook -> verified report
   rmSync(root, { recursive: true, force: true })
 }, 20_000)
 
+test('a schema-invalid suite is refused up front instead of producing a schema-violating report', async () => {
+  const { root, dataRoot } = seedWorkspace()
+  // measurement: 0 violates benchmark.schema.json (minimum: 1); unvalidated it
+  // reaches sampleLoop, samples nothing, and statsOf([]) emits NaN/Infinity
+  // stats that serialize as null — an invalid report with exit 0.
+  const bad = structuredClone(suite)
+  bad.iterations = { warmup: 1, measurement: 0 }
+  const badPath = join(root, 'bad.json')
+  writeFileSync(badPath, JSON.stringify(bad))
+  await expect(
+    runCli(['run', '--hook', fakeHook, badPath, '--size', 's', '--data', dataRoot]),
+  ).rejects.toThrow(/measurement/)
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('--strict without a checkfile fails loudly instead of silently skipping verification', async () => {
+  const { root, dataRoot, suitePath } = seedWorkspace()
+  rmSync(join(root, 'smoke.check.json'))
+  await expect(
+    runCli(['run', '--hook', fakeHook, suitePath, '--size', 's', '--data', dataRoot, '--strict']),
+  ).rejects.toThrow(/checkfile/i)
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('--strict with a checkfile that has no locked files for the requested size fails loudly', async () => {
+  const { root, dataRoot, suitePath } = seedWorkspace() // fixture checkfile has sizes: {}
+  await expect(
+    runCli(['run', '--hook', fakeHook, suitePath, '--size', 's', '--data', dataRoot, '--strict']),
+  ).rejects.toThrow(/size/i)
+  rmSync(root, { recursive: true, force: true })
+})
+
 test('exec debug mode sends one command and prints its response', async () => {
   const resp = await runCli(['exec', '--hook', fakeHook, '{"cmd":"capabilities"}'])
   expect(resp.ok).toBe(true)

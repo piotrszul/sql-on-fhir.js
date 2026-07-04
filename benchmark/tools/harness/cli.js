@@ -15,8 +15,9 @@ import { readManifest } from './manifest.js'
 import { spawnWorker } from './worker.js'
 import { runSuite } from './runner.js'
 import { writeJmhExports } from './jmh.js'
-import { checkfileFor } from '../layout.js'
+import { checkfileFor, pathFrom } from '../layout.js'
 import { readCheckfile, verifyChecksums } from '../checkfile.js'
+import { validateSchema } from '../validate-benchmarks.js'
 
 function parseArgs(argv) {
   const opts = { positional: [] }
@@ -56,11 +57,28 @@ export async function runCli(argv) {
   const [suitePath] = opts.positional
   if (!suitePath) throw new Error('usage: cli.js run --hook <hook.json> <benchmark.json> …')
   const benchmark = JSON.parse(readFileSync(suitePath, 'utf8'))
+  // Refuse a schema-invalid suite up front: unvalidated input (e.g. a zero
+  // measurement count) otherwise flows through to a schema-violating report.
+  const schemaErrs = validateSchema(benchmark)
+  if (schemaErrs.length) {
+    throw new Error(
+      `${suitePath} fails benchmark.schema.json:\n${schemaErrs.map((e) => `  - ${e}`).join('\n')}`,
+    )
+  }
   const size = opts.size || benchmark.dataset.defaultSize
-  const dataRoot = opts.dataRoot || new URL('../../data', import.meta.url).pathname
+  const dataRoot = opts.dataRoot || pathFrom(import.meta.url, '../../data')
   const checkfile = readCheckfile(checkfileFor(suitePath))
 
-  if (opts.strict && checkfile) {
+  // --strict promises the data was verified against locked bytes, so anything
+  // unverifiable (no checkfile, no entry for this size) must fail loudly rather
+  // than silently skip the check.
+  if (opts.strict) {
+    if (!checkfile) {
+      throw new Error(`--strict: no checkfile at ${checkfileFor(suitePath)}; nothing to verify against`)
+    }
+    if (!Object.keys(checkfile.sizes?.[size]?.files || {}).length) {
+      throw new Error(`--strict: the checkfile locks no files for size "${size}"; nothing to verify against`)
+    }
     const drift = verifyChecksums({ dataRoot, checkfile, size })
     if (drift.length) {
       throw new Error(`checksum drift detected:\n${drift.map((d) => `  - ${d}`).join('\n')}`)

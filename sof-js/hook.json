@@ -1,6 +1,6 @@
 {
   "command": ["bun", "src/hook.js"],
   "implementation": {
-    "engine": { "name": "sof-js", "version": "2.0.0" }
+    "engine": { "name": "sof-js", "version": "1.0.0" }
   }
 }

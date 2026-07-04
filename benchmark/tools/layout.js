@@ -1,6 +1,14 @@
 import { join, dirname, basename } from 'node:path'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+
+// Resolve a filesystem path relative to a module's own location. Always
+// fileURLToPath, never URL.pathname: pathname keeps percent-encoding, so a repo
+// checked out under a directory with a space would yield a nonexistent %20 path.
+export function pathFrom(importMetaUrl, rel) {
+  return fileURLToPath(new URL(rel, importMetaUrl))
+}
 
 // Shared content hash for a materialized file. The checkfile is the authoritative
 // home for per-file sha256; both the checkfile builder and any consumer that needs

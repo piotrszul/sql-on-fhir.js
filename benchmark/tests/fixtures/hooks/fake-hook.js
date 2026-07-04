@@ -10,10 +10,14 @@
 //   anything else -> write a CSV with one row per prepared NDJSON line
 //
 // capabilities echoes FAKE_TOKEN so tests can observe manifest env merging.
+// FAKE_IGNORE_SIGTERM makes the worker ignore both the shutdown command and
+// SIGTERM, so tests can exercise the harness's SIGKILL escalation.
 
 import { createInterface } from 'node:readline'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+
+if (process.env.FAKE_IGNORE_SIGTERM) process.on('SIGTERM', () => {})
 
 const counts = {}
 
@@ -64,6 +68,7 @@ createInterface({ input: process.stdin }).on('line', (line) => {
       break
     }
     case 'shutdown':
+      if (process.env.FAKE_IGNORE_SIGTERM) break // misbehave: refuse to exit
       process.exit(0)
     default:
       respond({ ok: false, error: `unknown cmd: ${msg.cmd}` })

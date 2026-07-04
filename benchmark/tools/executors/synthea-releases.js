@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
+import { pathFrom } from '../layout.js'
 
 // Committed pin of the Synthea generator jar keyed by syntheaVersion. Adding a new
 // version means adding one entry with its verified sha256 — the URL and checksum
@@ -72,5 +73,5 @@ export async function resolveSyntheaJar({
 
 // The default gitignored cache directory for fetched jars: benchmark/.cache/synthea/.
 export function defaultCacheDir() {
-  return new URL('../../.cache/synthea/', import.meta.url).pathname
+  return pathFrom(import.meta.url, '../../.cache/synthea/')
 }

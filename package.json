@@ -12,7 +12,7 @@
     "build:report": "cd test_report && bun run prepare && bun run build",
     "bench:test": "cd benchmark && bun test",
     "bench:validate": "cd benchmark && bun run validate",
-    "bench:harness": "cd benchmark && bun run tools/harness/cli.js",
+    "bench:harness": "bun run benchmark/tools/harness/cli.js",
     "bench:bless": "cd sof-js && bun run src/benchmark-run.js --record",
     "jmh": "cd benchmark && bun run tools/harness/jmh-cli.js",
     "bench:data": "cd benchmark && bun run data"

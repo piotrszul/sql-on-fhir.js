@@ -7,7 +7,7 @@
 import { evaluate } from './index.js'
 import { loadResources } from './benchmark.js'
 import { fhirpath_evaluate } from './path.js'
-import { resourceFile, checkfileFor } from '../../benchmark/tools/layout.js'
+import { resourceFile, checkfileFor, pathFrom } from '../../benchmark/tools/layout.js'
 import { readCheckfile, writeCheckfile, buildCheckfile } from '../../benchmark/tools/checkfile.js'
 
 // Detect whether a view uses forEach/forEachOrNull or a view-level where.
@@ -93,7 +93,7 @@ if (import.meta.main) {
   }
   const benchmark = JSON.parse(readFileSync(opts.path, 'utf8'))
   const size = opts.size || benchmark.dataset.defaultSize
-  const dataRoot = opts.dataRoot || new URL('../../benchmark/data', import.meta.url).pathname
+  const dataRoot = opts.dataRoot || pathFrom(import.meta.url, '../../benchmark/data')
   const checkfilePath = checkfileFor(opts.path)
   blessCheckfile({ benchmark, size, dataRoot, checkfilePath })
   console.error(`blessed checkfile ${checkfilePath} for size ${size}`)

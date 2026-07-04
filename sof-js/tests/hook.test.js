@@ -10,6 +10,14 @@ import { spawnWorker } from '../../benchmark/tools/harness/worker.js'
 
 const manifestPath = join(import.meta.dir, '../hook.json')
 
+// The manifest identity is copied verbatim into every published report and JMH
+// export, so a version drifting from package.json misattributes every result.
+test('hook.json engine version matches the sof-js package version', () => {
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+  const pkg = JSON.parse(readFileSync(join(import.meta.dir, '../package.json'), 'utf8'))
+  expect(manifest.implementation.engine.version).toBe(pkg.version)
+})
+
 const view = {
   resource: 'Observation',
   select: [
@@ -74,6 +82,25 @@ test('a failing view yields ok:false and the worker stays alive', async () => {
   expect(typeof bad.error).toBe('string')
   const good = await worker.send({ cmd: 'run', view, outCsv: join(dataDir, 'y.csv') }, { timeoutMs: 10000 })
   expect(good.ok).toBe(true)
+  await worker.shutdown()
+  rmSync(dataDir, { recursive: true, force: true })
+})
+
+test('a run against a resource type that was never prepared is ok:false, not a silent 0-row ok', async () => {
+  const dataDir = seedData()
+  const worker = spawnWorker(readManifest(manifestPath))
+  await worker.send({ cmd: 'prepare', dataDir, resources: ['Observation'] }, { timeoutMs: 10000 })
+  const resp = await worker.send(
+    {
+      cmd: 'run',
+      view: { resource: 'Patient', select: [{ column: [{ name: 'id', path: 'id', type: 'string' }] }] },
+      outCsv: join(dataDir, 'p.csv'),
+    },
+    { timeoutMs: 10000 },
+  )
+  expect(resp.ok).toBe(false)
+  expect(resp.error).toMatch(/Patient/)
+  expect(worker.alive).toBe(true)
   await worker.shutdown()
   rmSync(dataDir, { recursive: true, force: true })
 })

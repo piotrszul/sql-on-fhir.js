@@ -220,6 +220,20 @@ test('a polluted protocol stream fails the case but not the run', async () => {
   rmSync(dataRoot, { recursive: true, force: true })
 })
 
+test('a missing dataset resource file fails only the cases that need it, not the whole run', async () => {
+  const dataRoot = mkdtempSync(join(tmpdir(), 'harness-'))
+  const dir = datasetDir(dataRoot, 'fake-data', '1', 's')
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'Observation.ndjson'), '{"a":1}\n{"a":2}\n{"a":3}\n')
+  // Condition.ndjson deliberately absent; the suite still declares both resources.
+  const report = await run({ dataRoot, checkfile })
+  const cases = report.results['fake-suite'].cases
+  expect(cases.find((c) => c.id === 'obs').status).toBe('ok')
+  expect(cases.find((c) => c.id === 'cond').status).toBe('execution_error')
+  expect(validateReport(report)).toBe(true)
+  rmSync(dataRoot, { recursive: true, force: true })
+})
+
 test('caseFilter runs a subset; the report contains only those cases and validates', async () => {
   const dataRoot = seedData()
   const report = await run({ dataRoot, caseFilter: (c) => c.id === 'cond' })

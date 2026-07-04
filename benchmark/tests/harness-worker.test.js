@@ -114,6 +114,50 @@ test('a non-JSON stdout line rejects with ProtocolError', async () => {
   rmSync(dataRoot, { recursive: true, force: true })
 })
 
+function stubbornManifest(dir) {
+  const manifest = {
+    command: ['bun', join(import.meta.dir, 'fixtures/hooks/fake-hook.js')],
+    env: { FAKE_IGNORE_SIGTERM: '1' },
+    implementation: { engine: { name: 'fake-engine', version: '0.0.1' } },
+  }
+  writeFileSync(join(dir, 'stubborn.hook.json'), JSON.stringify(manifest))
+  return readManifest(join(dir, 'stubborn.hook.json'))
+}
+
+test('shutdown escalates to SIGKILL when the worker ignores shutdown and traps SIGTERM', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'stubborn-'))
+  const worker = spawnWorker(stubbornManifest(dir))
+  await worker.send({ cmd: 'capabilities' }, { timeoutMs: 5000 })
+  await worker.shutdown({ graceMs: 50 }) // must resolve, not hang the harness forever
+  expect(worker.alive).toBe(false)
+  rmSync(dir, { recursive: true, force: true })
+}, 10_000)
+
+test('kill() escalates to SIGKILL when the worker traps SIGTERM', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'stubborn-'))
+  const worker = spawnWorker(stubbornManifest(dir))
+  await worker.send({ cmd: 'capabilities' }, { timeoutMs: 5000 })
+  worker.kill({ graceMs: 50 })
+  await worker.waitExit() // must resolve once the escalation lands
+  expect(worker.alive).toBe(false)
+  rmSync(dir, { recursive: true, force: true })
+}, 10_000)
+
+test('a spawn failure (missing command binary) rejects with WorkerCrash instead of crashing the harness', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'nospawn-'))
+  const manifest = {
+    command: ['definitely-not-a-real-binary-6f2a', 'hook.js'],
+    implementation: { engine: { name: 'ghost', version: '0.0.1' } },
+  }
+  writeFileSync(join(dir, 'ghost.hook.json'), JSON.stringify(manifest))
+  const worker = spawnWorker(readManifest(join(dir, 'ghost.hook.json')))
+  await expect(worker.send({ cmd: 'capabilities' }, { timeoutMs: 5000 })).rejects.toBeInstanceOf(WorkerCrash)
+  expect(worker.alive).toBe(false)
+  await worker.waitExit() // resolves: spawn failure is terminal, not a hang
+  await worker.shutdown() // returns immediately on a dead worker
+  rmSync(dir, { recursive: true, force: true })
+})
+
 test('shutdown asks the worker to exit and it does', async () => {
   const worker = spawnWorker(readManifest(manifestPath))
   await worker.send({ cmd: 'capabilities' }, { timeoutMs: 5000 })

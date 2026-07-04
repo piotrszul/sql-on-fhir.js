@@ -25,8 +25,11 @@ function handle(msg) {
       for (const r of msg.resources) prepared[r] = loadResources(join(msg.dataDir, `${r}.ndjson`))
       return { ok: true }
     case 'run': {
+      if (!(msg.view.resource in prepared)) {
+        return { ok: false, error: `resource type "${msg.view.resource}" was not prepared` }
+      }
       const t0 = performance.now()
-      const rows = evaluate(msg.view, prepared[msg.view.resource] || [])
+      const rows = evaluate(msg.view, prepared[msg.view.resource])
       const t1 = performance.now()
       writeFileSync(msg.outCsv, serializeCsv(rows))
       const t2 = performance.now()
