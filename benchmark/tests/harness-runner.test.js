@@ -220,6 +220,19 @@ test('a polluted protocol stream fails the case but not the run', async () => {
   rmSync(dataRoot, { recursive: true, force: true })
 })
 
+test('report resourceCounts use the checkfile counting semantics, blank lines included', async () => {
+  const dataRoot = mkdtempSync(join(tmpdir(), 'harness-'))
+  const dir = datasetDir(dataRoot, 'fake-data', '1', 's')
+  mkdirSync(dir, { recursive: true })
+  // The checkfile's sha256-locked resourceCounts count newline-delimited lines
+  // (blank included); the report's counts must never disagree with them.
+  writeFileSync(join(dir, 'Observation.ndjson'), '{"a":1}\n\n{"a":2}\n')
+  writeFileSync(join(dir, 'Condition.ndjson'), '{"b":1}\n')
+  const report = await run({ dataRoot })
+  expect(report.results['fake-suite'].resourceCounts).toEqual({ Observation: 3, Condition: 1 })
+  rmSync(dataRoot, { recursive: true, force: true })
+})
+
 test('a missing dataset resource file fails only the cases that need it, not the whole run', async () => {
   const dataRoot = mkdtempSync(join(tmpdir(), 'harness-'))
   const dir = datasetDir(dataRoot, 'fake-data', '1', 's')

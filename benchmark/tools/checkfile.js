@@ -8,7 +8,10 @@ import { datasetDir, resourceFile, sha256Of } from './layout.js'
 // pure data operations (no timing/execution), so they live in the build tooling;
 // the runner composes them with its own timing harness and analytic cross-check.
 
-function countLines(path) {
+// The single NDJSON line-count implementation: the checkfile locks these counts
+// under sha256, so every other consumer (e.g. the harness's report
+// resourceCounts) reuses it rather than risking divergent semantics.
+export function countLines(path) {
   const txt = readFileSync(path, 'utf8')
   if (txt.length === 0) return 0
   return txt.endsWith('\n') ? txt.split('\n').length - 1 : txt.split('\n').length

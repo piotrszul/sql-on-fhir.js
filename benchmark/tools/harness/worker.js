@@ -54,6 +54,13 @@ export function spawnWorker(manifest) {
     for (const w of exitWaiters.splice(0)) w()
   })
 
+  // A send racing worker death lands on a dead pipe: without a listener the
+  // async EPIPE is an unhandled stream 'error' that kills the whole harness
+  // under Node (Bun swallows it). Fail the command; 'exit' owns the lifecycle.
+  child.stdin.on('error', (err) => {
+    rejectPending(new WorkerCrash(`worker stdin closed mid-command: ${err.message}`))
+  })
+
   child.stdout.on('data', (chunk) => {
     buffer += chunk.toString()
     let idx

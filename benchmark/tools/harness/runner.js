@@ -1,9 +1,9 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { spawnWorker, ProtocolError, WorkerCrash, WorkerTimeout } from './worker.js'
 import { datasetDir } from '../layout.js'
-import { assertionFor } from '../checkfile.js'
+import { assertionFor, countLines } from '../checkfile.js'
 import { countCsvRows } from './csv-count.js'
 import { statsOf } from './stats.js'
 
@@ -17,17 +17,14 @@ class SuiteError extends Error {}
 
 const PHASES = { preloaded_repeated: ['execute', 'extract'], end_to_end: ['load', 'execute', 'extract'] }
 
-function countNdjsonLines(path) {
-  const txt = readFileSync(path, 'utf8')
-  return txt.split('\n').filter((l) => l.trim().length > 0).length
-}
-
-// Dataset resource counts for report traceability. Advisory, never able to void
-// completed cases (the partial-run guarantee): a missing file degrades to {}.
+// Dataset resource counts for report traceability, counted with the checkfile's
+// own countLines so they can never disagree with the sha256-locked counts.
+// Advisory, never able to void completed cases (the partial-run guarantee): a
+// missing file degrades to {}.
 function observeResourceCounts(dataDir, resources) {
   try {
     const counts = {}
-    for (const r of resources) counts[r] = countNdjsonLines(join(dataDir, `${r}.ndjson`))
+    for (const r of resources) counts[r] = countLines(join(dataDir, `${r}.ndjson`))
     return counts
   } catch {
     return {}

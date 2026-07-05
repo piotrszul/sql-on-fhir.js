@@ -2,6 +2,7 @@ import { test, expect } from 'bun:test'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { spawnSync } from 'node:child_process'
 import { readManifest } from '../tools/harness/manifest.js'
 import { spawnWorker, ProtocolError, WorkerCrash, WorkerTimeout } from '../tools/harness/worker.js'
 
@@ -142,6 +143,37 @@ test('kill() escalates to SIGKILL when the worker traps SIGTERM', async () => {
   expect(worker.alive).toBe(false)
   rmSync(dir, { recursive: true, force: true })
 }, 10_000)
+
+// A stream 'error' (EPIPE) from a send racing worker death is swallowed by Bun
+// but crashes an unprepared Node process, so the regression scenario runs the
+// real worker client inside a node subprocess and must merely survive it.
+test.skipIf(!Bun.which('node'))(
+  'a send racing worker death cannot crash the harness process',
+  () => {
+    const dir = mkdtempSync(join(tmpdir(), 'epipe-'))
+    const script = `
+import { spawnWorker, WorkerCrash } from '${join(import.meta.dir, '../tools/harness/worker.js')}'
+const worker = spawnWorker({ command: ['bun', '-e', 'process.exit(0)'] })
+try {
+  // Large payload so the flush lands in the dead pipe (unknown fields are
+  // ignored by workers per benchmark-hook-format).
+  await worker.send({ cmd: 'capabilities', pad: 'x'.repeat(1 << 20) }, { timeoutMs: 3000 })
+} catch (err) {
+  console.log(err instanceof WorkerCrash ? 'WORKERCRASH' : 'OTHER:' + err.constructor.name)
+}
+await new Promise((r) => setTimeout(r, 500)) // window for a latent unhandled EPIPE to surface
+console.log('SURVIVED')
+`
+    writeFileSync(join(dir, 'race.mjs'), script)
+    const res = spawnSync('node', [join(dir, 'race.mjs')], { encoding: 'utf8', timeout: 15_000 })
+    expect(res.stderr).not.toMatch(/EPIPE/)
+    expect(res.status).toBe(0)
+    expect(res.stdout).toContain('WORKERCRASH')
+    expect(res.stdout).toContain('SURVIVED')
+    rmSync(dir, { recursive: true, force: true })
+  },
+  20_000,
+)
 
 test('a spawn failure (missing command binary) rejects with WorkerCrash instead of crashing the harness', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'nospawn-'))
