@@ -440,3 +440,9 @@ test('a hook that does not declare the requested scenario is refused', async () 
   rmSync(dir, { recursive: true, force: true })
   rmSync(dataRoot, { recursive: true, force: true })
 })
+
+test('an unknown scenario is refused up front with the valid names, before any hook is started', async () => {
+  const dataRoot = seedData()
+  await expect(run({ dataRoot, scenario: 'end-to-end' })).rejects.toThrow(/valid scenarios/i)
+  rmSync(dataRoot, { recursive: true, force: true })
+})

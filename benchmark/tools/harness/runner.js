@@ -66,6 +66,9 @@ export async function runSuite({
   readinessMs,
   caseFilter,
 }) {
+  if (!PHASES[scenario]) {
+    throw new Error(`unknown scenario "${scenario}"; valid scenarios are: ${Object.keys(PHASES).join(', ')}`)
+  }
   // The manifest's lifecycle mode (benchmark-hook-format): spawn mode starts and
   // terminates the hook service; connect mode only ever talks to it.
   const mode = manifest.endpoint ? 'connect' : 'spawn'
