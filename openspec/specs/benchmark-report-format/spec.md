@@ -52,9 +52,12 @@ materialized to the sink — distinct from `generation_error`, where generation
 produced no data at all). The OPTIONAL `message` is a short human-readable
 explanation of a non-`ok` outcome (most useful for `generation_error`,
 `execution_error`, `timeout`, and `malformed`); it is advisory context for a human
-reader, never a machine-parsed field, and an `ok` case omits it. A report
-containing only the cases a run completed — each with its status — is schema-valid
-and meaningful, so a partial or interrupted run still produces a conforming report.
+reader, never a machine-parsed field. An `ok` case NORMALLY omits `message`, but a
+runner MAY attach one to an `ok` case to surface an advisory anomaly that does not
+change the verdict — for example a hook-reported row count disagreeing with the
+harness-derived count that the guard actually used. A report containing only the
+cases a run completed — each with its status — is schema-valid and meaningful, so a
+partial or interrupted run still produces a conforming report.
 
 #### Scenario: Well-formed report is accepted
 
@@ -111,6 +114,14 @@ and meaningful, so a partial or interrupted run still produces a conforming repo
 - **WHEN** a failed case carries a free-text `message` explaining the failure
 - **THEN** schema validation passes; and a case that omits `message` also validates,
   because `message` is OPTIONAL
+
+#### Scenario: An ok case may carry an advisory message
+
+- **WHEN** a runner attaches a `message` to an `ok` case to surface an advisory
+  anomaly that did not change the verdict (for example a hook-reported row count
+  disagreeing with the harness-derived count the guard used)
+- **THEN** the report is conformant; the message remains advisory, never
+  machine-parsed
 
 #### Scenario: Partial run report is valid
 
@@ -243,36 +254,40 @@ sources from.
 ### Requirement: Defined statistics and inputRows
 
 A case's `stats` SHALL conform to a defined basic-statistics shape rather than a
-free-form object: the fields are EXACTLY `mean`, `stddev`, `min`, `max`, and
+free-form object: the REQUIRED fields are `mean`, `stddev`, `min`, `max`, and
 `median` (all in the same time unit as `samplesMs`), where `median` is the middle
-value (the statistic formerly required as `p50`, renamed for clarity). These five
-are the only permitted fields — the schema sets `additionalProperties` false, so a
-`stats` carrying any other key (for example `p95` or `ci95`) is rejected. `stats`
-SHALL be reported alongside the raw `samplesMs`, which SHALL remain REQUIRED so
-that any consumer — including the JMH export — can recompute whatever percentiles
-it wants from the raw data. The report SHOULD carry at least a RECOMMENDED minimum
-of 7 samples for the statistics to be meaningful; this minimum is ADVISORY guidance
-and SHALL NOT be enforced as a hard `minItems` floor in the report schema. The
-shape SHALL be projectable onto a JMH `primaryMetric` (score = `mean`,
-scorePercentiles from `median` plus `min`/`max`, and rawData = `samplesMs`);
-`scoreError` is NOT a precomputed field — a consumer recomputes it, along with any
-richer percentiles, from the raw `samplesMs`. `inputRows` SHALL be defined
-precisely as the number of input resources OF THE CASE'S `view.resource` TYPE that
-were loaded for that (case, size) — the denominator for throughput/normalization —
-distinct from `outputRows` and from the total resource count across all types.
+value (the statistic formerly required as `p50`, renamed for clarity). Fields
+beyond the required five are PERMITTED (the schema does NOT set
+`additionalProperties` false), so the shape can evolve additively and an
+implementation may record extra statistics it already computes (for example
+`p95`) — but a consumer SHALL NOT depend on any field beyond the required five,
+and cross-implementation comparison SHALL use only the required fields and the
+raw samples. `stats` SHALL be reported alongside the raw `samplesMs`, which
+SHALL remain REQUIRED so that any consumer — including the JMH export — can
+recompute whatever percentiles it wants from the raw data. The report SHOULD
+carry at least a RECOMMENDED minimum of 7 samples for the statistics to be
+meaningful; this minimum is ADVISORY guidance and SHALL NOT be enforced as a
+hard `minItems` floor in the report schema. The shape SHALL be projectable onto
+a JMH `primaryMetric` (score = `mean`, scorePercentiles from `median` plus
+`min`/`max`, and rawData = `samplesMs`); `scoreError` is NOT a precomputed field
+— a consumer recomputes it, along with any richer percentiles, from the raw
+`samplesMs`. `inputRows` SHALL be defined precisely as the number of input
+resources OF THE CASE'S `view.resource` TYPE that were loaded for that
+(case, size) — the denominator for throughput/normalization — distinct from
+`outputRows` and from the total resource count across all types.
 
 #### Scenario: stats has the defined shape
 
 - **WHEN** a case reports `stats`
-- **THEN** it contains exactly `mean`, `stddev`, `min`, `max`, and `median`, and no
-  other field, not an arbitrary free-form object
+- **THEN** it contains at least `mean`, `stddev`, `min`, `max`, and `median` —
+  not an arbitrary free-form object
 
-#### Scenario: Required fields enforced; any extra field rejected
+#### Scenario: Required fields enforced; extra fields permitted
 
 - **WHEN** a case's `stats` omits `median` (or another required field)
-- **THEN** schema validation fails; and a `stats` that carries any field beyond the
-  five (for example `p95` or `ci95`) is also rejected, because the shape is exactly
-  `{mean, stddev, min, max, median}`
+- **THEN** schema validation fails; and a `stats` that carries a field beyond
+  the five (for example `p95`) validates, because the shape is open for
+  additive extension — though no consumer may rely on the extra field
 
 #### Scenario: Raw samples remain available for recomputation
 
@@ -293,4 +308,39 @@ distinct from `outputRows` and from the total resource count across all types.
 - **WHEN** a case whose `view.resource` is `Condition` reports `inputRows`
 - **THEN** `inputRows` is the number of `Condition` resources loaded at that
   size, not the output row count and not the total across all resource types
+
+### Requirement: Verified flag distinguishes verified from unverified ok
+
+A verified `ok` SHALL be machine-distinguishable from an unverified one. A case
+result MAY carry a boolean `verified` field recording whether the
+work-verification guard actually consulted a checkfile assertion for that case
+and size: `verified: true` means an assertion was present and the reported
+status reflects a real comparison; `verified` false or absent means no
+assertion was consulted, so an `ok` is UNVERIFIED — the case ran but its output
+row count was not checked against a blessed expectation. This closes the
+"assertion absent ⇒ silently ok" ambiguity: a run against a missing, stale, or
+mis-keyed checkfile is distinguishable from a verified pass. The field is
+OPTIONAL and ADDITIVE — reports that omit it remain valid — and a consumer MAY
+treat unverified `ok` cells more conservatively (for example, a downstream
+export MAY choose to exclude them).
+
+#### Scenario: Verified pass carries the flag
+
+- **WHEN** a case's output row count is compared against a present checkfile
+  assertion and matches
+- **THEN** the case is `ok` with `verified: true`
+
+#### Scenario: Missing assertion yields unverified ok
+
+- **WHEN** no checkfile assertion exists for a case and size (for example the
+  checkfile is absent or the case `id` is not in it)
+- **THEN** the case MAY be reported `ok`, but without `verified: true`, so the
+  unverified pass is machine-distinguishable from a verified one
+
+#### Scenario: Reports without the flag remain valid
+
+- **WHEN** a report produced by an older runner carries cases with no
+  `verified` field
+- **THEN** it validates against `benchmark-report.schema.json`, because the
+  field is optional and additive
 
