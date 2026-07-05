@@ -87,7 +87,7 @@ if (import.meta.main) {
   if (!opts.record) {
     console.error('benchmark-run is bless-only: pass --record to write the checkfile.')
     console.error(
-      'To measure, use the harness: bun run bench:harness -- run --hook sof-js/hook.json <file> --size <s>',
+      'To measure, use the harness: bun run bench:harness run --hook sof-js/hook.json <file> --size <s>',
     )
     process.exit(2)
   }

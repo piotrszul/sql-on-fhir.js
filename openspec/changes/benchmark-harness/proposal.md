@@ -23,24 +23,30 @@ uniform) and intra-engine version tuning (one place emits the JMH export).
 ## What Changes
 
 - **NEW hook contract (public contract).** An implementation is benchmarked
-  through a harness-supervised WORKER PROCESS speaking line-delimited JSON over
-  stdio: `capabilities` → `prepare` → `run` ×N → `shutdown`. stdout belongs to
-  the protocol; engine logs go to stderr. A hook is described by a small
-  manifest (`hook.json`) declaring the spawn command and the STATIC
-  implementation identity (`engine`, optional `binding`, optional `variant`)
-  that the harness copies into the report. Hooks live IMPLEMENTATION-SIDE (each
+  through a small local HTTP SERVICE (the hook) speaking JSON:
+  `GET /capabilities` → `POST /prepare` → `POST /run` ×N, plus `POST /reset`
+  and `POST /shutdown` where the lifecycle requires them. A hook is described
+  by a small manifest (`hook.json`) declaring EXACTLY ONE lifecycle mode —
+  `command` (spawn mode: the harness starts the service with an assigned
+  `HOOK_PORT`, probes readiness, and owns termination) or `endpoint` (connect
+  mode: an operator-managed service the harness only connects to) — and the
+  STATIC implementation identity (`engine`, optional `binding`, optional
+  `variant`) that the harness copies into the report. Hooks live
+  IMPLEMENTATION-SIDE (each
   engine's repo owns its hook); this repo ships only the `sof-js` hook as the
   reference example, so the hook contract must stand alone as a fully documented
   public contract.
 - **NEW shared reference harness** under `benchmark/tools/harness/` (a reference
-  tool, replaceable like the materializer). The harness owns: worker lifecycle
-  (spawn/kill; a crashed worker maps to `execution_error`, an unresponsive one
-  to `timeout` under the harness's own budget), wall-clock timing of each `run`
+  tool, replaceable like the materializer). The harness owns: hook lifecycle
+  per the manifest's mode (spawn/terminate or connect; a crashed or
+  transport-failing hook maps to `execution_error`, an unresponsive one to
+  `timeout` under the harness's own budget), wall-clock timing of each `run`
   round-trip (the NORMATIVE measurement — no clock code in any implementation),
   both measurement scenarios (`preloaded_repeated`: `prepare` untimed, `run`
-  timed; `end_to_end`: `prepare`+`run` timed with a WORKER RESTART between
-  samples so each sample is dataset-cold by construction, spawn excluded from
-  timing), output row counting FROM THE WRITTEN CSV (the work-verification guard
+  timed; `end_to_end`: `prepare`+`run` timed, dataset-cold via SERVICE RESTART
+  between samples in spawn mode or a trusted untimed `reset` in connect mode,
+  spawn/readiness excluded from timing), output row counting FROM THE WRITTEN
+  CSV (the work-verification guard
   no longer trusts the engine under test; the hook's own `outputRows` is an
   optional cross-check), checkfile assertion verification, statistics, native
   report emission, and the JMH export.
@@ -55,8 +61,8 @@ uniform) and intra-engine version tuning (one place emits the JMH export).
   artifact → implementation dependency direction clean (the harness only
   verifies).
 - **The hand-rolled-runner path survives as the escape hatch.** The report
-  format remains a public contract; an implementation that cannot fit the worker
-  model (e.g. a REST-only service) still hand-rolls a runner and emits the same
+  format remains a public contract; an implementation that cannot fit the hook
+  model even in connect mode still hand-rolls a runner and emits the same
   report format, so downstream consumers (JMH export, future aggregation) are
   indifferent to the route.
 - **BREAKING (pre-production waiver, called out openly): the artifact's "no
@@ -88,13 +94,15 @@ decision).
 ### New Capabilities
 
 - `benchmark-hook-format`: the hook public contract — the `hook.json` manifest
-  (spawn command, static implementation identity) and the worker stdio protocol
-  (line-delimited JSON commands `capabilities`/`prepare`/`run`/`shutdown`,
-  response shapes, error signalling, stdout/stderr discipline, buffering rules).
-- `benchmark-harness`: the reference harness — worker lifecycle and failure
-  mapping onto the status taxonomy, harness-owned wall-clock timing, the two
-  scenarios' timed-region and restart semantics, CSV-derived row counting,
-  checkfile verification, report and JMH emission.
+  (lifecycle mode `command` | `endpoint`, static implementation identity) and
+  the hook HTTP protocol (endpoints
+  `capabilities`/`prepare`/`run`/`reset`/`shutdown`, request/response shapes,
+  error signalling, spawn readiness, trusted-`reset` semantics).
+- `benchmark-harness`: the reference harness — hook lifecycle per mode and
+  failure mapping onto the status taxonomy, harness-owned wall-clock timing,
+  the two scenarios' timed-region semantics per lifecycle mode
+  (restart-enforced / reset-trusted), CSV-derived row counting, checkfile
+  verification, report and JMH emission.
 
 ### Modified Capabilities
 
@@ -111,13 +119,14 @@ decision).
 
 - `benchmark/tools/harness/` (NEW): the reference harness implementation.
 - `benchmark/benchmark-hook.schema.json` (NEW public contract): the hook
-  manifest schema; the wire protocol is specified prose+examples in the
-  capability spec.
+  manifest schema (`command` | `endpoint`, exactly one); the HTTP protocol is
+  specified prose+examples in the capability spec.
 - `benchmark/benchmark-report.schema.json`: `stats.additionalProperties` opened;
   optional per-case `verified` added.
 - `sof-js/src/benchmark-run.js`: slimmed to bless mode (`--record` + analytic
   cross-check); loop/report/JMH code moves to the harness.
-- `sof-js` (NEW): the reference hook (worker entry point + `hook.json`).
+- `sof-js` (NEW): the reference hook (a `Bun.serve` HTTP service entry point +
+  `hook.json`).
 - `sof-js/src/jmh.js` / `jmh-cli.js`: relocated/re-exported under the harness
   (the projection stays a pure function of the native report).
 - `benchmark/README.md`: the runner contract section gains the hook route as

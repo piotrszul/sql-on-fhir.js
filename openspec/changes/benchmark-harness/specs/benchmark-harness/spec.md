@@ -5,9 +5,9 @@
 ### Requirement: Harness owns the measurement loop and the normative timing
 
 The reference harness SHALL own the measurement loop and the clock: for each
-measured sample it wall-clock times one `run` command round-trip (command
-written to the worker's stdin → response line read from stdout, which by the
-hook contract arrives only after the CSV is fully written). These
+measured sample it wall-clock times one `run` command round-trip (HTTP request
+written → response fully received, which by the hook contract arrives only
+after the CSV is fully written). These
 harness-timed round-trips ARE the report's `samplesMs`; no implementation
 carries timing code, and hook-reported `phasesMs` are recorded only as the
 advisory `phaseSamplesMs`. Warmup iterations SHALL be discarded. The harness
@@ -29,18 +29,22 @@ SHALL take its recommended warmup/measurement counts from the benchmark file's
 
 ### Requirement: Scenario semantics are enforced by process control
 
-The harness SHALL implement both measurement scenarios with their timed regions
-enforced by how it manages the worker, per the report format's load-boundary
-distinction. For `preloaded_repeated`: spawn (untimed) → `prepare` (untimed) →
-warmup `run`s (discarded) → measured `run`s (each timed) → `shutdown`. For
-`end_to_end`: spawn (untimed — process/VM startup is not ETL cost) → a timed
-region covering the `prepare` + `run` round-trips (phases
-`load` + `execute` + `extract`) → and a WORKER RESTART between samples, so that
-every `end_to_end` sample is dataset-cold BY CONSTRUCTION: the harness never
-sent the dataset to that worker process before the timed sample. The harness
-SHALL emit a report whose `measurement.scenario`, `phases`, `sink` (`csv`), and
-warmup/iteration counts describe what it actually did, and SHALL NOT emit a
-scenario it did not enforce.
+The harness SHALL implement both measurement scenarios with their timed
+regions enforced by how it manages the hook's lifecycle, per the report
+format's load-boundary distinction. For `preloaded_repeated` (both lifecycle
+modes): setup (untimed) → `prepare` (untimed) → warmup `run`s (discarded) →
+measured `run`s (each timed) → `shutdown` (spawn mode only). For `end_to_end`
+in SPAWN mode: spawn + readiness (untimed — process/VM startup is not ETL
+cost) → a timed region covering the `prepare` + `run` round-trips (phases
+`load` + `execute` + `extract`) → a SERVICE RESTART between samples, so that
+every sample is dataset-cold BY CONSTRUCTION: the harness never sent the
+dataset to that process before the timed sample. For `end_to_end` in CONNECT
+mode: an UNTIMED `reset` precedes each timed `prepare` + `run` region;
+dataset-coldness rests on the hook honouring the reset contract (trusted —
+the service's process, and therefore its runtime warmth, persists across
+samples). The harness SHALL emit a report whose `measurement.scenario`,
+`phases`, `sink` (`csv`), and warmup/iteration counts describe what it
+actually did, and SHALL NOT emit a scenario it did not drive.
 
 #### Scenario: preloaded_repeated excludes load from every sample
 
@@ -49,12 +53,20 @@ scenario it did not enforce.
   only a `run` round-trip, and the report declares
   `phases: ["execute", "extract"]`
 
-#### Scenario: end_to_end samples are dataset-cold via worker restart
+#### Scenario: Spawn-mode end_to_end samples are dataset-cold via restart
 
-- **WHEN** the harness collects three `end_to_end` samples for a case
-- **THEN** it spawns a fresh worker per sample (spawn untimed), times
-  `prepare` + `run` together per sample, and the report declares
-  `phases: ["load", "execute", "extract"]`
+- **WHEN** the harness collects three `end_to_end` samples for a spawn-mode
+  hook
+- **THEN** it spawns a fresh hook service per sample (spawn and readiness
+  untimed), times `prepare` + `run` together per sample, and the report
+  declares `phases: ["load", "execute", "extract"]`
+
+#### Scenario: Connect-mode end_to_end samples reset before each timed region
+
+- **WHEN** the harness collects `end_to_end` samples against a connect-mode
+  hook
+- **THEN** it sends an untimed `reset` before each sample's timed
+  `prepare` + `run` region, and never restarts the operator-managed service
 
 #### Scenario: The report never claims an unenforced scenario
 
@@ -64,31 +76,46 @@ scenario it did not enforce.
 
 ### Requirement: Worker lifecycle failures map onto the status taxonomy
 
-The harness SHALL own the worker's lifetime — spawn from the hook manifest,
-`shutdown` on completion, SIGTERM on abandonment — and SHALL map lifecycle
-failures onto the report status taxonomy per its best-effort rules: a worker
-that crashes while a case is in flight yields `execution_error` for that case;
-a worker that exceeds the harness's OWN out-of-band inactivity budget is
-killed and the in-flight case is recorded as `timeout`; an `{"ok":false}`
-response yields `execution_error` with the hook's `error` recorded as the
-advisory `message`. After killing or losing a worker the harness SHALL respawn
-it (and re-`prepare` where the scenario requires) to continue with the
-remaining cases, preserving the reference-runner contract's per-case failure
-isolation: a failing case never aborts the run nor voids other cases' recorded
-results, and a partial run still emits a valid report.
+The harness SHALL own the hook's lifecycle per the manifest's mode — in spawn
+mode: start from `command`, probe readiness via `capabilities` within a
+budget, `shutdown` on completion, terminate on abandonment; in connect mode:
+connect to `endpoint`; `shutdown` is NOT sent and the service is never
+terminated by the harness. Failures SHALL map onto the report status taxonomy
+per its best-effort rules: a transport-level failure while a case is in
+flight (connection refused or reset, non-2xx status, unparseable body, or —
+spawn mode — the hook process dying) yields `execution_error` for that case;
+a command exceeding the harness's OWN out-of-band inactivity budget yields
+`timeout` for the in-flight case (spawn mode additionally kills the hook
+process); an `{"ok":false}` response yields `execution_error` with the hook's
+`error` recorded as the advisory `message`. After losing a hook the harness
+SHALL restore a usable one to continue with the remaining cases — respawn in
+spawn mode, reconnect (with `reset` + re-`prepare` where the scenario
+requires) in connect mode — preserving the reference-runner contract's
+per-case failure isolation: a failing case never aborts the run nor voids
+other cases' recorded results, and a partial run still emits a valid report.
+A spawn-mode hook that never becomes ready within the readiness budget, or a
+connect-mode endpoint that refuses the initial connection, SHALL fail the
+run's setup loudly rather than recording per-case noise.
 
 #### Scenario: Worker crash mid-case is recorded and the run continues
 
-- **WHEN** the worker process dies while a case's `run` is in flight
-- **THEN** that case is recorded as `execution_error`, the harness respawns the
-  worker, and the remaining cases are attempted and recorded independently
+- **WHEN** a spawn-mode hook process dies while a case's `run` is in flight
+- **THEN** that case is recorded as `execution_error`, the harness respawns
+  the hook, and the remaining cases are attempted and recorded independently
 
 #### Scenario: Unresponsive worker maps to timeout
 
-- **WHEN** a `run` produces no response line within the harness's inactivity
-  budget
-- **THEN** the harness kills the worker, records the case as `timeout`, and
-  continues with the remaining cases in a fresh worker
+- **WHEN** a `run` produces no response within the harness's inactivity budget
+- **THEN** the harness records the case as `timeout`, kills the hook process
+  in spawn mode, and continues with the remaining cases against a restored
+  hook
+
+#### Scenario: Readiness failure aborts setup loudly
+
+- **WHEN** a spawn-mode hook never answers `capabilities` validly within the
+  readiness budget
+- **THEN** the harness reports a setup failure for the run rather than
+  recording every case as a per-case failure
 
 ### Requirement: Verification counts rows from the written CSV
 

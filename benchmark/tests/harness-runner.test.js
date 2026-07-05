@@ -1,7 +1,9 @@
 import { test, expect } from 'bun:test'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { spawn } from 'node:child_process'
+import { createServer } from 'node:net'
 import Ajv from 'ajv'
 import reportSchema from '../benchmark-report.schema.json'
 import { readManifest } from '../tools/harness/manifest.js'
@@ -10,6 +12,45 @@ import { datasetDir } from '../tools/layout.js'
 
 const validateReport = new Ajv({ strict: false }).compile(reportSchema)
 const manifestPath = join(import.meta.dir, 'fixtures/hooks/fake.hook.json')
+const fakeHookJs = join(import.meta.dir, 'fixtures/hooks/fake-hook.js')
+
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const srv = createServer()
+    srv.on('error', reject)
+    srv.listen(0, '127.0.0.1', () => {
+      const { port } = srv.address()
+      srv.close(() => resolve(port))
+    })
+  })
+}
+
+// An operator-managed hook service for connect-mode tests: the TEST owns the
+// process; the harness must only ever connect to it.
+async function startService(env = {}) {
+  const port = await freePort()
+  const child = spawn('bun', [fakeHookJs], {
+    env: { ...process.env, HOOK_PORT: String(port), ...env },
+    stdio: ['ignore', 'inherit', 'inherit'],
+  })
+  const deadline = Date.now() + 10_000
+  for (;;) {
+    try {
+      const r = await fetch(`http://127.0.0.1:${port}/capabilities`)
+      if (r.ok) break
+    } catch {}
+    if (Date.now() > deadline) throw new Error('fake service never became ready')
+    await new Promise((r) => setTimeout(r, 25))
+  }
+  return {
+    manifest: {
+      endpoint: `http://127.0.0.1:${port}`,
+      implementation: { engine: { name: 'fake-engine', version: '0.0.1' } },
+    },
+    alive: () => child.exitCode === null && !child.killed,
+    stop: () => child.kill('SIGKILL'),
+  }
+}
 
 const suite = {
   name: 'fake-suite',
@@ -207,15 +248,17 @@ test('an ok:false response is execution_error with the hook error as message; wo
   rmSync(dataRoot, { recursive: true, force: true })
 })
 
-test('a polluted protocol stream fails the case but not the run', async () => {
+test('a transport-level protocol violation (non-2xx, garbage body) fails the case but not the run', async () => {
   const dataRoot = seedData()
   const b = structuredClone(suite)
   b.cases = [
-    { id: 'noisy', title: 'noisy', view: { resource: 'PolluteMe' } },
+    { id: 'garbage', title: 'garbage', view: { resource: 'GarbageMe' } },
+    { id: 'http500', title: 'http500', view: { resource: 'Http500Me' } },
     { id: 'obs', title: 'obs', view: { resource: 'Observation' } },
   ]
   const report = await run({ dataRoot, benchmark: b })
-  expect(report.results['fake-suite'].cases.find((c) => c.id === 'noisy').status).toBe('execution_error')
+  expect(report.results['fake-suite'].cases.find((c) => c.id === 'garbage').status).toBe('execution_error')
+  expect(report.results['fake-suite'].cases.find((c) => c.id === 'http500').status).toBe('execution_error')
   expect(report.results['fake-suite'].cases.find((c) => c.id === 'obs').status).toBe('ok')
   rmSync(dataRoot, { recursive: true, force: true })
 })
@@ -276,6 +319,107 @@ test('end_to_end: fresh worker per sample, prepare+run timed, phases include loa
   expect(obs.verified).toBe(true)
   expect(obs.samplesMs).toHaveLength(2)
   expect(validateReport(report)).toBe(true)
+  rmSync(dataRoot, { recursive: true, force: true })
+})
+
+// ---- 9.1/9.3 connect-mode scenario loops ----
+
+test('connect-mode preloaded_repeated: reset+prepare untimed, service never terminated', async () => {
+  const dataRoot = seedData()
+  const service = await startService()
+  const report = await run({ dataRoot, manifest: service.manifest, checkfile })
+  expect(validateReport(report)).toBe(true)
+  const cases = report.results['fake-suite'].cases
+  expect(cases.find((c) => c.id === 'obs').status).toBe('ok')
+  expect(cases.find((c) => c.id === 'cond').status).toBe('ok')
+  // the operator-managed service survives the whole run
+  expect(service.alive()).toBe(true)
+  service.stop()
+  rmSync(dataRoot, { recursive: true, force: true })
+})
+
+test('connect-mode end_to_end: untimed reset precedes each timed prepare+run; no restart', async () => {
+  const dataRoot = seedData()
+  const logDir = mkdtempSync(join(tmpdir(), 'hooklog-'))
+  const logFile = join(logDir, 'commands.log')
+  const service = await startService({ FAKE_LOG: logFile })
+  const b = structuredClone(suite)
+  b.cases = [{ id: 'obs', title: 'obs', view: { resource: 'Observation' } }]
+  b.iterations = { warmup: 1, measurement: 2 }
+  const report = await run({
+    dataRoot,
+    manifest: service.manifest,
+    benchmark: b,
+    scenario: 'end_to_end',
+    checkfile,
+  })
+  expect(report.measurement.scenario).toBe('end_to_end')
+  expect(report.measurement.phases).toEqual(['load', 'execute', 'extract'])
+  const obs = report.results['fake-suite'].cases[0]
+  expect(obs.status).toBe('ok')
+  expect(obs.samplesMs).toHaveLength(2)
+  // every timed prepare+run region was preceded by a reset on the SAME service
+  const commands = readFileSync(logFile, 'utf8').trim().split('\n')
+  const perSample = commands.filter((l) => l !== 'GET /capabilities')
+  expect(perSample).toEqual([
+    'POST /reset',
+    'POST /prepare',
+    'POST /run',
+    'POST /reset',
+    'POST /prepare',
+    'POST /run',
+  ])
+  expect(service.alive()).toBe(true) // never restarted, never terminated
+  service.stop()
+  rmSync(logDir, { recursive: true, force: true })
+  rmSync(dataRoot, { recursive: true, force: true })
+})
+
+// ---- 8.5 restore-and-continue in connect mode ----
+
+test('connect mode: a timed-out case is recorded and the harness reconnects, resets and re-prepares', async () => {
+  const dataRoot = seedData()
+  const service = await startService()
+  const b = structuredClone(suite)
+  b.cases = [
+    { id: 'hang', title: 'hang', view: { resource: 'HangMe' } },
+    { id: 'obs', title: 'obs', view: { resource: 'Observation' } },
+  ]
+  const report = await run({ dataRoot, manifest: service.manifest, benchmark: b, inactivityMs: 250 })
+  const cases = report.results['fake-suite'].cases
+  expect(cases.find((c) => c.id === 'hang').status).toBe('timeout')
+  expect(cases.find((c) => c.id === 'obs').status).toBe('ok') // after reconnect + reset + re-prepare
+  expect(service.alive()).toBe(true)
+  service.stop()
+  rmSync(dataRoot, { recursive: true, force: true })
+})
+
+// ---- 8.2 setup failures fail the run loudly, never per-case ----
+
+test('a spawn-mode hook that never becomes ready aborts the run setup, not per-case noise', async () => {
+  const dataRoot = seedData()
+  const dir = mkdtempSync(join(tmpdir(), 'neverready-'))
+  const manifest = {
+    command: ['bun', fakeHookJs],
+    env: { FAKE_NEVER_READY: '1' },
+    implementation: { engine: { name: 'fake-engine', version: '0.0.1' } },
+  }
+  writeFileSync(join(dir, 'neverready.hook.json'), JSON.stringify(manifest))
+  await expect(
+    run({ dataRoot, manifest: readManifest(join(dir, 'neverready.hook.json')), readinessMs: 400 }),
+  ).rejects.toThrow(/ready/i)
+  rmSync(dir, { recursive: true, force: true })
+  rmSync(dataRoot, { recursive: true, force: true })
+}, 15_000)
+
+test('a connect-mode endpoint refusing the initial connection aborts the run setup', async () => {
+  const dataRoot = seedData()
+  const port = await freePort() // nothing listens there
+  const manifest = {
+    endpoint: `http://127.0.0.1:${port}`,
+    implementation: { engine: { name: 'ghost', version: '0.0.1' } },
+  }
+  await expect(run({ dataRoot, manifest })).rejects.toThrow(/reach|refus/i)
   rmSync(dataRoot, { recursive: true, force: true })
 })
 

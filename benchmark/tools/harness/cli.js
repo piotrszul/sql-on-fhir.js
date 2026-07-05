@@ -7,12 +7,12 @@
 //     sha256 locks first. --jmh also writes the JMH projection.
 //
 //   exec --hook <hook.json> '<json-command>'
-//     Single-command debug mode: spawn the worker, send one protocol command,
-//     print its response line, shut down.
+//     Single-command debug mode: bring up the hook per its lifecycle mode, send
+//     one protocol command, print the JSON response, shut down (spawn mode).
 
 import { readFileSync, writeFileSync } from 'node:fs'
 import { readManifest } from './manifest.js'
-import { spawnWorker } from './worker.js'
+import { startWorker } from './worker.js'
 import { runSuite } from './runner.js'
 import { writeJmhExports } from './jmh.js'
 import { checkfileFor, pathFrom } from '../layout.js'
@@ -43,7 +43,7 @@ export async function runCli(argv) {
   if (mode === 'exec') {
     const [commandJson] = opts.positional
     if (!commandJson) throw new Error("usage: cli.js exec --hook <hook.json> '<json-command>'")
-    const worker = spawnWorker(manifest)
+    const worker = await startWorker(manifest)
     try {
       const resp = await worker.send(JSON.parse(commandJson), { timeoutMs: 60_000 })
       console.log(JSON.stringify(resp))

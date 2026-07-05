@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { spawnWorker, ProtocolError, WorkerCrash, WorkerTimeout } from './worker.js'
+import { startWorker, SetupError, WorkerTimeout } from './worker.js'
 import { datasetDir } from '../layout.js'
 import { assertionFor, countLines } from '../checkfile.js'
 import { countCsvRows } from './csv-count.js'
@@ -63,8 +63,12 @@ export async function runSuite({
   checkfile = null,
   scenario = 'preloaded_repeated',
   inactivityMs = 300_000,
+  readinessMs,
   caseFilter,
 }) {
+  // The manifest's lifecycle mode (benchmark-hook-format): spawn mode starts and
+  // terminates the hook service; connect mode only ever talks to it.
+  const mode = manifest.endpoint ? 'connect' : 'spawn'
   const dataDir = datasetDir(dataRoot, benchmark.dataset.name, benchmark.dataset.version, size)
   const { warmup = 1, measurement = 5 } = benchmark.iterations || {}
   const cases = caseFilter ? benchmark.cases.filter(caseFilter) : benchmark.cases
@@ -86,7 +90,9 @@ export async function runSuite({
       try {
         entry = await runCase(c, outCsv, state)
       } catch (err) {
-        if (err instanceof SuiteError) throw err
+        // Suite- and setup-level failures are the run's, loudly — never
+        // laundered into per-case noise.
+        if (err instanceof SuiteError || err instanceof SetupError) throw err
         // An untrusted or dead worker is discarded; the next case respawns.
         if (!(err instanceof HookError)) {
           state.worker?.kill()
@@ -126,13 +132,18 @@ export async function runSuite({
 
   // -- scenario loops ---------------------------------------------------------
 
-  // preloaded_repeated: one long-lived worker; spawn + prepare OUTSIDE every
-  // timed region; each measured sample wall-clocks one `run` round-trip.
-  // Prepare is lazy and per-resource so a missing/broken resource file fails
-  // only the cases that query it (per-case failure isolation), never the run.
+  // preloaded_repeated (both lifecycle modes): one long-lived hook; bring-up +
+  // prepare OUTSIDE every timed region; each measured sample wall-clocks one
+  // `run` round-trip. Prepare is lazy and per-resource so a missing/broken
+  // resource file fails only the cases that query it (per-case failure
+  // isolation), never the run.
   async function runCasePreloaded(c, outCsv, state) {
     if (!state.worker) {
-      state.worker = await spawnGated()
+      state.worker = await startGated()
+      // Connect-mode hygiene, on first connect and on every reconnect after a
+      // lost hook: discard whatever the long-lived service may still hold
+      // before preparing (untimed, trusted per benchmark-hook-format).
+      if (mode === 'connect') await sendChecked(state.worker, { cmd: 'reset' }, inactivityMs)
       state.prepared = new Set()
     }
     const worker = state.worker
@@ -152,12 +163,27 @@ export async function runSuite({
     return finishEntry(c, outCsv, measured)
   }
 
-  // end_to_end: a FRESH worker per sample (spawn untimed — VM boot is not ETL
-  // cost), the prepare + run round-trips timed together, restart between
-  // samples so every sample is dataset-cold by construction. Warmup is ignored.
-  async function runCaseEndToEnd(c, outCsv) {
+  // end_to_end: the prepare + run round-trips timed together; warmup is
+  // ignored. Dataset-coldness per lifecycle mode (benchmark-harness spec):
+  // spawn mode restarts a FRESH hook service per sample (spawn + readiness
+  // untimed — VM boot is not ETL cost), so every sample is cold BY
+  // CONSTRUCTION; connect mode never restarts the operator-managed service and
+  // TRUSTS an untimed `reset` before each timed region instead.
+  async function runCaseEndToEnd(c, outCsv, state) {
+    if (mode === 'connect') {
+      if (!state.worker) state.worker = await startGated()
+      const worker = state.worker
+      const measured = await sampleLoop(async () => {
+        await sendChecked(worker, { cmd: 'reset' }, inactivityMs)
+        const t0 = performance.now()
+        await sendChecked(worker, { cmd: 'prepare', dataDir, resources }, inactivityMs)
+        const resp = await sendChecked(worker, { cmd: 'run', view: c.view, outCsv }, inactivityMs)
+        return { ms: performance.now() - t0, resp }
+      })
+      return finishEntry(c, outCsv, measured)
+    }
     const measured = await sampleLoop(async () => {
-      const worker = await spawnGated()
+      const worker = await startGated()
       try {
         const t0 = performance.now()
         await sendChecked(worker, { cmd: 'prepare', dataDir, resources }, inactivityMs)
@@ -209,19 +235,16 @@ export async function runSuite({
     return entry
   }
 
-  // Spawn + capabilities gate: the harness never drives a hook through a
-  // scenario it did not declare (benchmark-hook-format).
-  async function spawnGated() {
-    const worker = spawnWorker(manifest)
-    try {
-      const caps = await sendChecked(worker, { cmd: 'capabilities' }, inactivityMs)
-      if (!caps.scenarios?.includes(scenario)) {
-        throw new SuiteError(`hook does not declare scenario "${scenario}" (declares: ${caps.scenarios})`)
-      }
-      return worker
-    } catch (err) {
-      worker.kill()
-      throw err
+  // Bring-up + capabilities gate: startWorker resolves only once the hook has
+  // answered `capabilities` (readiness), and the harness never drives a hook
+  // through a scenario it did not declare (benchmark-hook-format).
+  async function startGated() {
+    const worker = await startWorker(manifest, readinessMs ? { readinessMs } : {})
+    const declared = worker.capabilities.scenarios
+    if (!declared?.includes(scenario)) {
+      await worker.shutdown()
+      throw new SuiteError(`hook does not declare scenario "${scenario}" (declares: ${declared})`)
     }
+    return worker
   }
 }

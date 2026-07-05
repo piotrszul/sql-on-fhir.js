@@ -16,7 +16,10 @@ and its `buildReport` accepts `scenario: end_to_end` while never timing the
 load phase.
 
 This change introduces a shared reference harness plus a thin hook contract, as
-agreed in the design review of the benchmark subproject (2026-07-03).
+agreed in the design review of the benchmark subproject (2026-07-03). The hook
+transport was revised from stdio line-JSON to local HTTP in the follow-up
+transport review (2026-07-05) and folded into this change pre-merge; D1
+records both the decision and the rejected first cut.
 
 ## Goals / Non-Goals
 
@@ -45,35 +48,59 @@ agreed in the design review of the benchmark subproject (2026-07-03).
 
 ## Decisions
 
-### D1. Transport: harness-supervised worker over stdio (not HTTP, not per-phase shell commands)
+### D1. Transport: local HTTP service, spawned or connected (not stdio, not per-phase shell commands)
 
-The hook is a single long-lived child process per implementation, spawned and
-killed by the harness, speaking line-delimited JSON on stdin/stdout.
+The hook is a small HTTP service on a localhost port, speaking the protocol as
+JSON request/response bodies: `GET /capabilities`, `POST /prepare`,
+`POST /run`, `POST /reset`, `POST /shutdown`. The manifest declares exactly
+one lifecycle mode: `command` (spawn mode — the harness starts the service
+with an OS-allocated port passed as `HOOK_PORT`, polls `GET /capabilities`
+until ready within a budget, and owns termination) or `endpoint` (connect
+mode — an operator-managed service, e.g. started via docker-compose; the
+harness only connects and never terminates it).
 
-- *Why not HTTP*: HTTP answers "how do I call it" but not lifetime — port
-  allocation, readiness probing, orphan cleanup and a supervisor would all have
-  to be bolted on, and every hook would have to embed an HTTP server. A
-  supervised child gets lifetime for free: the child dies with the harness,
-  and a crashed child is directly observable.
+- *Why not stdio line-JSON* (this change's first cut): stdio is respectable
+  practice for supervised workers (LSP, DAP, MCP all use it), but three
+  observations from prototyping reversed the call. Implementer ergonomics —
+  every hook author knows their stack's HTTP micro-framework (Flask, Javalin,
+  `Bun.serve`), while stdio protocol loops are niche and carry a
+  runtime-specific flush footgun; and a STATEFUL stdio session (`prepare`,
+  then repeated `run`) cannot be hand-driven the way `curl` drives an HTTP
+  session, which matters most while the prototype gathers implementer
+  feedback. Deployment shape — the server-backed engines next in line
+  (Pathling, sof-mssql) already run as services; a supervised-child-only
+  contract wraps them awkwardly and excludes REST-only engines. Robustness —
+  the process-supervision surface concentrated the prototype's fragility
+  (spawn failure, shutdown hang, pipe errors); HTTP delegates framing, error
+  signalling and connection lifecycle to mature stacks.
+- *Why not hardened stdio with JSON-RPC 2.0 framing* (riding vscode-jsonrpc /
+  LSP4J / pygls): stronger than a hand-rolled line protocol, but those
+  libraries are LSP-ecosystem niche — familiarity stays with HTTP — and the
+  stateful-session debuggability gap remains.
+- *Why not dual transport* (`stdio | http` per manifest): re-imports the
+  divergence risk the shared harness exists to eliminate — two transports to
+  keep semantically identical, doubled tests and docs, for a fleet of four.
 - *Why not per-phase shell commands* (ClickBench-style `prepare.sh`/`run.sh`):
-  `preloaded_repeated` requires loaded state to survive between timed samples;
-  for embedded engines (sof-js, flatquack in-process) state cannot outlive a
-  process, so `prepare.sh` would have to start a daemon and stash a pid/port
-  file — reinventing service management without a supervisor.
-- A hook that fronts a heavier service (a JVM, a database server) starts and
-  stops it *behind* the protocol boundary; the harness only ever manages one
-  child.
-- stdout is reserved for the protocol; engine logs go to stderr. Responses are
-  flushed per line (block-buffered runtimes such as Python must flush
-  explicitly).
-- Hand-debuggability is preserved: the protocol is line-JSON
-  (`echo '{"cmd":"run",...}' | ./hook` works), and the harness ships a
-  single-command debug mode.
+  works only when prepared state lives externally (a database); for embedded
+  engines state cannot outlive a process, so the scripts would privately
+  daemonize and reinvent a transport ad hoc.
+- Engine failures stay in the response body (2xx + `{"ok":false,"error"}`),
+  keeping the status-taxonomy mapping transport-independent; transport-level
+  failures (connection refused/reset, non-2xx, malformed body) are the
+  protocol-violation/crash class. stdout/stderr carry no protocol duties (in
+  spawn mode the harness may capture them as diagnostics).
+- A hook that fronts a heavier service (a JVM, a database server) either
+  starts and stops it behind the protocol boundary (spawn mode) or IS that
+  service's sidecar/endpoint (connect mode).
+- Hand-debuggability: a stateful session is drivable by hand
+  (`curl :$PORT/prepare`, then repeated `curl :$PORT/run`), and the harness
+  keeps a single-command debug mode.
 
 ### D2. Timing ownership: the harness wall-clocks; hook-reported phases are advisory
 
 The normative sample is the harness's wall-clock around each `run` round-trip
-(command written → response line read, after the CSV file is fully written).
+(HTTP request written → response fully received, after the CSV file is fully
+written).
 No implementation carries clock code. A hook MAY report per-phase splits
 (`load`/`execute`/`extract`) in its response; the harness records them as the
 report's existing optional `phaseSamplesMs` — diagnostics for intra-engine
@@ -81,20 +108,30 @@ tuning, never the comparable number. IPC round-trip overhead is negligible
 against multi-second view executions and is paid equally by every
 implementation.
 
-### D3. Scenario semantics enforced by process control
+### D3. Scenario semantics enforced by lifecycle control
 
-- `preloaded_repeated`: spawn (untimed) → `prepare` (untimed) → warmup `run`s
-  (discarded) → measured `run`s (each timed) → `shutdown`.
-- `end_to_end`: spawn (untimed — VM boot is not ETL cost) → timed region
-  covering `prepare` + `run` → worker RESTART between samples, so every sample
-  is dataset-cold by construction. The spec's "MUST NOT be warmed with this
-  dataset" stops being honor-system: the harness never sent the dataset to that
-  worker before the timed sample.
+- `preloaded_repeated` (both modes): setup (untimed) → `prepare` (untimed) →
+  warmup `run`s (discarded) → measured `run`s (each timed) → `shutdown` (spawn
+  mode only). A repeated `prepare` REPLACES the prepared dataset, so a
+  long-lived connect-mode service does not accumulate data across harness
+  runs.
+- `end_to_end`, spawn mode: spawn + readiness (untimed — VM boot is not ETL
+  cost) → timed region covering `prepare` + `run` → service RESTART between
+  samples, so every sample is dataset-cold by construction: the harness never
+  sent the dataset to that process before the timed sample.
+- `end_to_end`, connect mode: an UNTIMED `reset` precedes each timed
+  `prepare` + `run` region. Coldness is TRUSTED to the hook's `reset`
+  (discard the prepared dataset so `prepare` re-does full ingest work); the
+  service process — and with it runtime warmth such as JIT and engine caches —
+  persists across samples, which the spec states openly. Finer cold semantics
+  (cache-class disclosure, honesty heuristics, warm-engine variants) are
+  deferred until implementer feedback.
 
 ### D4. Governance: hooks live implementation-side
 
-Each implementation's repo hosts its `hook.json` + worker; the harness takes a
-manifest path (`--hook <path>`). This repo ships only the sof-js hook as the
+Each implementation's repo hosts its `hook.json` + hook service; the harness
+takes a manifest path (`--hook <path>`). The manifest also fixes the lifecycle
+mode (`command` | `endpoint`), so deployment shape is declared, not inferred. This repo ships only the sof-js hook as the
 worked example. Consequences: the hook contract must stand alone as a fully
 documented public contract, and the manifest is the natural home for the
 report's `implementation` identity (`engine`/`binding`/`variant` declared
@@ -158,18 +195,23 @@ computes comparability-critical numbers). sof-js gains a hook entry point +
   database's buffer pool persists across samples, invisible to the harness] →
   Stated openly in the harness spec as what "preloaded" means; a cold-cache
   mode is a future `variant`, not a new scenario.
-- [stdout contamination by chatty engines corrupts the protocol] → The hook
-  spec makes stderr-for-logs a normative rule with a scenario; the harness
-  fails a case loudly on an unparseable protocol line rather than guessing.
+- [Port conflicts / stale listeners in spawn mode] → OS-allocated free port
+  per spawn; the readiness probe validates the `capabilities` body, so
+  "something else answered on that port" is distinguishable from "ready".
+- [Orphaned children if the harness dies mid-run (spawn mode)] → spawn into a
+  process group and terminate the group; accepted residual risk at prototype
+  grade.
+- [Connect-mode `reset` dishonesty or drift] → trusted by design at prototype
+  grade (revisited with implementer feedback); the report still never claims
+  a scenario the harness did not drive.
 - [The harness becomes a single point of measurement bugs] → Preferable to N
   divergent copies of the same bugs; mitigated by protocol-level tests with
-  scripted fake hooks and by the unchanged, still-public report contract.
-- [Worker model biases toward embedded/library deployment shapes] → The
-  hand-rolled-runner route remains conformant for deployment shapes that
-  cannot fit (e.g. REST-only services).
-- [Python/JVM hooks with block-buffered stdout hang the protocol] → Explicit
-  flush requirement with its own scenario; harness inactivity budget maps to
-  `timeout` rather than hanging forever.
+  scripted fake hooks (tiny HTTP servers) and by the unchanged, still-public
+  report contract.
+- [Embedded hooks must now embed an HTTP listener] → ~10 lines in Bun/Node;
+  the sof-js hook is the worked example proving the size claim. Deployment
+  shapes that fit neither mode still have the hand-rolled-runner escape
+  hatch.
 
 ## Migration Plan
 
@@ -183,8 +225,12 @@ untouched.
 
 ## Open Questions
 
-- Should the protocol message shapes be pinned in a JSON Schema per line (in
-  addition to prose + examples in the capability spec)? Deferred until a second
-  hook exists to test ergonomics.
+- Should the protocol message shapes be pinned in a JSON Schema per endpoint
+  (in addition to prose + examples in the capability spec)? Deferred until a
+  second hook exists to test ergonomics.
 - `prepare` granularity if a future suite declares many datasets per file
   (today: one dataset per suite, one `prepare` per (dataset, size)).
+- Optional `reset` in spawn mode as a cheaper alternative to restart for
+  engines where restart is expensive (restart stays the enforced default).
+- Whether the report should disclose the cold mechanism (`restart` vs
+  `reset`) per run — deferred with the finer cold semantics.

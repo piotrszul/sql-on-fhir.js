@@ -39,3 +39,37 @@
 - [x] 6.1 Rewrite `benchmark/README.md` runner-contract section: hook route (recommended, with the Python-worker sketch) and hand-rolled runner route (escape hatch); document stdout/stderr discipline and the flush rule; state the warm-cache semantics of `preloaded_repeated`
 - [x] 6.2 Fold harness tests and hook-schema validation into `bun test` / `bun run validate` / `bun run check-fmt`; full pipeline green
 - [x] 6.3 `openspec validate benchmark-harness --strict` green; proposal/design/specs consistent with what was built
+
+## 7. HTTP transport rework: contracts (test-first)
+
+- [x] 7.1 Update hook-manifest schema tests: exactly one of `command`/`endpoint` (both or neither rejected), connect-mode manifest with `endpoint` accepted, unknown top-level properties still rejected; update `benchmark/benchmark-hook.schema.json` to make them pass
+- [x] 7.2 Update `hook.json` fixtures: spawn-mode (`command`) and connect-mode (`endpoint`) variants for schema and harness tests
+
+## 8. Harness HTTP client and lifecycle (test-first; fake hooks become tiny HTTP servers)
+
+- [x] 8.1 Rework scripted fake-hook fixtures into minimal HTTP servers covering the same misbehaviours plus the transport-native ones: well-behaved, `{"ok":false}`-responding, crashing mid-request, hanging (no response), non-2xx-answering, malformed-body, slow-but-valid, never-becoming-ready
+- [x] 8.2 Write failing tests, then implement spawn-mode lifecycle: OS-allocated free port passed as `HOOK_PORT`, readiness poll of `GET /capabilities` within a budget (spawn + readiness untimed), process-group termination on completion/abandonment; a never-ready hook fails the run's setup loudly, not per-case (subsumes the review findings on spawn-`error` crash, shutdown hang and stdin EPIPE — those surfaces no longer exist)
+- [x] 8.3 Write failing tests, then implement connect-mode lifecycle: `endpoint` base URL, no `shutdown` sent and no termination, initial connection refusal fails setup loudly
+- [x] 8.4 Write failing tests, then implement the HTTP protocol client: five endpoints with the existing JSON bodies, at most one in-flight request, `capabilities` gating scenarios; engine failure (2xx + `{"ok":false}`) → `execution_error` with advisory `message`; transport failure (refused/reset, non-2xx, malformed body) → case fails, run continues; inactivity budget → `timeout` (+ kill in spawn mode)
+- [x] 8.5 Write failing tests, then implement restore-and-continue after a lost hook (respawn in spawn mode; reconnect + `reset` + re-`prepare` in connect mode), preserving per-case failure isolation and valid partial reports
+
+## 9. Scenario loops per lifecycle mode (test-first)
+
+- [x] 9.1 `preloaded_repeated` over HTTP in both modes; add the prepare-replaces-dataset test (a second `prepare` does not accumulate data)
+- [x] 9.2 `end_to_end` spawn mode: fresh hook service per sample (spawn + readiness untimed), `prepare` + `run` timed together
+- [x] 9.3 `end_to_end` connect mode: untimed `reset` before each timed `prepare` + `run` region; the operator-managed service is never restarted
+
+## 10. sof-js hook, docs, pipeline
+
+- [x] 10.1 Re-wrap `sof-js/src/hook.js` as a `Bun.serve` service honouring `HOOK_PORT` (all five endpoints, including `reset`); update `sof-js/hook.json`; keep the end-to-end smoke test green (materialized fixtures → harness → verified report → JMH export)
+- [x] 10.2 Rewrite the hook-route section of `benchmark/README.md`: HTTP protocol with a `curl` walk-through and a Flask hook sketch replacing the Python stdio sketch; document spawn/connect modes and the trusted-`reset` semantics; drop the stdout/stderr and flush rules
+- [x] 10.3 Full pipeline green (`bun test`, `bun run validate`, `bun run check-fmt`); `openspec validate benchmark-harness --strict` green; proposal/design/specs consistent with what was built (note: sof-js carries 9 conformance-test failures + 2 broken server test files that pre-exist on `main` and are unrelated to this change; the benchmark suite, hook tests, validate and check-fmt are green)
+
+## 11. PR #26 review fixes intersecting the rework
+
+- [x] 11.1 `sof-js/src/hook.js`: a `run` whose `view.resource` was never prepared answers `{"ok":false}` (no silent empty-dataset `ok`) — carried into the HTTP re-wrap, with the regression test restored
+- [x] 11.2 `package.json` `bench:harness`: resolve user-supplied `--hook` and suite paths against the invocation cwd (drop the `cd benchmark` trap); align the hint printed by `benchmark-run.js` and the README examples
+- [x] 11.3 Replace `new URL(...).pathname` with `fileURLToPath()` at the six sites introduced on this branch (done in the earlier hardening commits; the only remaining `.pathname` is an HTTP route path in the hook, not a filesystem path)
+- [x] 11.4 `--strict` with a missing checkfile (or a checkfile lacking the requested size) fails loudly instead of silently skipping checksum verification
+- [x] 11.5 Align `sof-js/hook.json` engine version with `sof-js/package.json` (derive at read time or add a drift test beside the hook-schema tests)
+- [x] 11.6 Decide prepare-failure isolation: a missing declared resource file must not void cases querying present resources (restore the deleted regression test), or record the granularity change openly in the harness spec — resolved by lazy per-resource prepare in `preloaded_repeated`, with the regression test in `harness-runner.test.js`

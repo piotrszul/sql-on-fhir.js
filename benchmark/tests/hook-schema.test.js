@@ -9,8 +9,21 @@ const goodManifest = {
   implementation: { engine: { name: 'sof-js', version: '2.0.0' } },
 }
 
-test('a minimal manifest (command + engine) passes the schema', () => {
+test('a minimal spawn-mode manifest (command + engine) passes the schema', () => {
   expect(validate(goodManifest)).toBe(true)
+})
+
+test('a connect-mode manifest (endpoint + engine) passes the schema', () => {
+  const m = structuredClone(goodManifest)
+  delete m.command
+  m.endpoint = 'http://127.0.0.1:8095'
+  expect(validate(m)).toBe(true)
+})
+
+test('a manifest declaring both command and endpoint is rejected', () => {
+  const bad = structuredClone(goodManifest)
+  bad.endpoint = 'http://127.0.0.1:8095'
+  expect(validate(bad)).toBe(false)
 })
 
 test('a full manifest with binding, variant, cwd and env passes the schema', () => {
@@ -22,7 +35,7 @@ test('a full manifest with binding, variant, cwd and env passes the schema', () 
   expect(validate(m)).toBe(true)
 })
 
-test('a manifest omitting command is rejected', () => {
+test('a manifest declaring neither command nor endpoint is rejected', () => {
   const bad = structuredClone(goodManifest)
   delete bad.command
   expect(validate(bad)).toBe(false)
@@ -61,4 +74,11 @@ test('an unknown key inside implementation is rejected', () => {
 test('the committed sof-js hook manifest validates', async () => {
   const manifest = await Bun.file(new URL('../../sof-js/hook.json', import.meta.url)).json()
   expect(validate(manifest)).toBe(true)
+})
+
+test('the committed fixture manifests (spawn and connect) validate', async () => {
+  for (const f of ['fake.hook.json', 'fake-connect.hook.json']) {
+    const manifest = await Bun.file(new URL(`./fixtures/hooks/${f}`, import.meta.url)).json()
+    expect(validate(manifest)).toBe(true)
+  }
 })

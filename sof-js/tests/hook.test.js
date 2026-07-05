@@ -1,12 +1,12 @@
 import { test, expect } from 'bun:test'
-import { mkdtempSync, writeFileSync, readFileSync, rmSync, copyFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, copyFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { readManifest } from '../../benchmark/tools/harness/manifest.js'
-import { spawnWorker } from '../../benchmark/tools/harness/worker.js'
+import { startWorker } from '../../benchmark/tools/harness/worker.js'
 
 // Protocol-level tests: drive the sof-js hook (the reference example of
-// benchmark-hook-format) through the real harness worker client.
+// benchmark-hook-format) through the real harness worker client, over HTTP.
 
 const manifestPath = join(import.meta.dir, '../hook.json')
 
@@ -35,17 +35,17 @@ function seedData() {
   return dir
 }
 
-test('capabilities declares both scenarios', async () => {
-  const worker = spawnWorker(readManifest(manifestPath))
-  const caps = await worker.send({ cmd: 'capabilities' }, { timeoutMs: 10000 })
-  expect(caps.ok).toBe(true)
-  expect(caps.scenarios.sort()).toEqual(['end_to_end', 'preloaded_repeated'])
+test('the hook comes up on the assigned HOOK_PORT and declares both scenarios', async () => {
+  const worker = await startWorker(readManifest(manifestPath))
+  expect(worker.mode).toBe('spawn')
+  expect(worker.capabilities.ok).toBe(true)
+  expect(worker.capabilities.scenarios.sort()).toEqual(['end_to_end', 'preloaded_repeated'])
   await worker.shutdown()
 })
 
 test('prepare + run evaluates the view and fully writes the CSV before responding', async () => {
   const dataDir = seedData()
-  const worker = spawnWorker(readManifest(manifestPath))
+  const worker = await startWorker(readManifest(manifestPath))
   const prep = await worker.send(
     { cmd: 'prepare', dataDir, resources: ['Observation'] },
     { timeoutMs: 10000 },
@@ -66,9 +66,9 @@ test('prepare + run evaluates the view and fully writes the CSV before respondin
   rmSync(dataDir, { recursive: true, force: true })
 })
 
-test('a failing view yields ok:false and the worker stays alive', async () => {
+test('a failing view yields ok:false and the hook stays alive', async () => {
   const dataDir = seedData()
-  const worker = spawnWorker(readManifest(manifestPath))
+  const worker = await startWorker(readManifest(manifestPath))
   await worker.send({ cmd: 'prepare', dataDir, resources: ['Observation'] }, { timeoutMs: 10000 })
   const bad = await worker.send(
     {
@@ -88,7 +88,7 @@ test('a failing view yields ok:false and the worker stays alive', async () => {
 
 test('a run against a resource type that was never prepared is ok:false, not a silent 0-row ok', async () => {
   const dataDir = seedData()
-  const worker = spawnWorker(readManifest(manifestPath))
+  const worker = await startWorker(readManifest(manifestPath))
   await worker.send({ cmd: 'prepare', dataDir, resources: ['Observation'] }, { timeoutMs: 10000 })
   const resp = await worker.send(
     {
@@ -105,8 +105,38 @@ test('a run against a resource type that was never prepared is ok:false, not a s
   rmSync(dataDir, { recursive: true, force: true })
 })
 
-test('an unknown cmd is an error response, not an exit', async () => {
-  const worker = spawnWorker(readManifest(manifestPath))
+test('reset discards the prepared dataset; a fresh prepare re-does the ingest', async () => {
+  const dataDir = seedData()
+  const worker = await startWorker(readManifest(manifestPath))
+  await worker.send({ cmd: 'prepare', dataDir, resources: ['Observation'] }, { timeoutMs: 10000 })
+  const reset = await worker.send({ cmd: 'reset' }, { timeoutMs: 10000 })
+  expect(reset.ok).toBe(true)
+  // the prepared dataset is gone, not silently retained
+  const stale = await worker.send({ cmd: 'run', view, outCsv: join(dataDir, 'x.csv') }, { timeoutMs: 10000 })
+  expect(stale.ok).toBe(false)
+  // prepare after reset performs the full ingest again
+  await worker.send({ cmd: 'prepare', dataDir, resources: ['Observation'] }, { timeoutMs: 10000 })
+  const rerun = await worker.send({ cmd: 'run', view, outCsv: join(dataDir, 'y.csv') }, { timeoutMs: 10000 })
+  expect(rerun.ok).toBe(true)
+  expect(rerun.outputRows).toBe(3)
+  await worker.shutdown()
+  rmSync(dataDir, { recursive: true, force: true })
+})
+
+test('prepare replaces the previously prepared dataset, not extends it', async () => {
+  const dataDir = seedData()
+  const worker = await startWorker(readManifest(manifestPath))
+  await worker.send({ cmd: 'prepare', dataDir, resources: ['Observation'] }, { timeoutMs: 10000 })
+  // a second prepare for a disjoint resource set drops Observation entirely
+  await worker.send({ cmd: 'prepare', dataDir, resources: [] }, { timeoutMs: 10000 })
+  const resp = await worker.send({ cmd: 'run', view, outCsv: join(dataDir, 'x.csv') }, { timeoutMs: 10000 })
+  expect(resp.ok).toBe(false)
+  await worker.shutdown()
+  rmSync(dataDir, { recursive: true, force: true })
+})
+
+test('an unknown command endpoint is an error response, not an exit', async () => {
+  const worker = await startWorker(readManifest(manifestPath))
   const resp = await worker.send({ cmd: 'frobnicate' }, { timeoutMs: 10000 })
   expect(resp.ok).toBe(false)
   expect(worker.alive).toBe(true)

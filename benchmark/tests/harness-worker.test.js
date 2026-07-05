@@ -1,12 +1,20 @@
 import { test, expect } from 'bun:test'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { spawnSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
+import { createServer } from 'node:net'
 import { readManifest } from '../tools/harness/manifest.js'
-import { spawnWorker, ProtocolError, WorkerCrash, WorkerTimeout } from '../tools/harness/worker.js'
+import {
+  startWorker,
+  ProtocolError,
+  WorkerCrash,
+  WorkerTimeout,
+  SetupError,
+} from '../tools/harness/worker.js'
 
 const manifestPath = join(import.meta.dir, 'fixtures/hooks/fake.hook.json')
+const fakeHookJs = join(import.meta.dir, 'fixtures/hooks/fake-hook.js')
 
 function seedData() {
   const dataRoot = mkdtempSync(join(tmpdir(), 'hook-'))
@@ -14,7 +22,42 @@ function seedData() {
   return dataRoot
 }
 
-// ---- manifest loading (2.2) ----
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const srv = createServer()
+    srv.on('error', reject)
+    srv.listen(0, '127.0.0.1', () => {
+      const { port } = srv.address()
+      srv.close(() => resolve(port))
+    })
+  })
+}
+
+// An operator-managed hook service for connect-mode tests: the TEST owns the
+// process (the harness must never terminate it).
+async function startService(env = {}) {
+  const port = await freePort()
+  const child = spawn('bun', [fakeHookJs], {
+    env: { ...process.env, HOOK_PORT: String(port), ...env },
+    stdio: ['ignore', 'inherit', 'inherit'],
+  })
+  const deadline = Date.now() + 10_000
+  for (;;) {
+    try {
+      const r = await fetch(`http://127.0.0.1:${port}/capabilities`)
+      if (r.ok) break
+    } catch {}
+    if (Date.now() > deadline) throw new Error('fake service never became ready')
+    await new Promise((r) => setTimeout(r, 25))
+  }
+  return {
+    endpoint: `http://127.0.0.1:${port}`,
+    alive: () => child.exitCode === null && !child.killed,
+    stop: () => child.kill('SIGKILL'),
+  }
+}
+
+// ---- manifest loading (7.x) ----
 
 test('readManifest validates against the hook schema and resolves cwd to the manifest dir', () => {
   const m = readManifest(manifestPath)
@@ -30,22 +73,26 @@ test('readManifest rejects a manifest that fails the hook schema', () => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-// ---- protocol client (2.3) ----
+test('readManifest passes a connect-mode manifest through without inventing a cwd', () => {
+  const m = readManifest(join(import.meta.dir, 'fixtures/hooks/fake-connect.hook.json'))
+  expect(m.endpoint).toBe('http://127.0.0.1:8095')
+  expect(m.cwd).toBeUndefined()
+})
 
-test('send() returns the parsed response line; manifest env reaches the worker', async () => {
-  const worker = spawnWorker(readManifest(manifestPath))
-  const caps = await worker.send({ cmd: 'capabilities' }, { timeoutMs: 5000 })
-  expect(caps.ok).toBe(true)
-  expect(caps.scenarios).toContain('preloaded_repeated')
-  expect(caps.token).toBe('tok') // env from the manifest merged into the worker
+// ---- spawn-mode lifecycle and protocol client (8.2, 8.4) ----
+
+test('startWorker spawns on an assigned HOOK_PORT, polls readiness, and exposes capabilities', async () => {
+  const worker = await startWorker(readManifest(manifestPath))
+  expect(worker.mode).toBe('spawn')
+  expect(worker.capabilities.ok).toBe(true)
+  expect(worker.capabilities.scenarios).toContain('preloaded_repeated')
+  expect(worker.capabilities.token).toBe('tok') // env from the manifest merged into the hook
   await worker.shutdown()
 })
 
-test('commands are answered in order, one response line each', async () => {
+test('prepare and run round-trip over HTTP', async () => {
   const dataRoot = seedData()
-  const worker = spawnWorker(readManifest(manifestPath))
-  const caps = await worker.send({ cmd: 'capabilities' }, { timeoutMs: 5000 })
-  expect(caps.ok).toBe(true)
+  const worker = await startWorker(readManifest(manifestPath))
   const prep = await worker.send(
     { cmd: 'prepare', dataDir: dataRoot, resources: ['Observation'] },
     { timeoutMs: 5000 },
@@ -62,8 +109,8 @@ test('commands are answered in order, one response line each', async () => {
   rmSync(dataRoot, { recursive: true, force: true })
 })
 
-test('an unknown cmd yields an ok:false response and the worker stays alive', async () => {
-  const worker = spawnWorker(readManifest(manifestPath))
+test('an unknown command endpoint yields an ok:false response and the hook stays alive', async () => {
+  const worker = await startWorker(readManifest(manifestPath))
   const resp = await worker.send({ cmd: 'frobnicate' }, { timeoutMs: 5000 })
   expect(resp.ok).toBe(false)
   const caps = await worker.send({ cmd: 'capabilities' }, { timeoutMs: 5000 })
@@ -71,25 +118,42 @@ test('an unknown cmd yields an ok:false response and the worker stays alive', as
   await worker.shutdown()
 })
 
-// ---- failure mapping raw material (2.4) ----
-
-test('a worker that crashes mid-command rejects with WorkerCrash', async () => {
+test('reset discards prepared state; prepare has replace-semantics', async () => {
   const dataRoot = seedData()
-  const worker = spawnWorker(readManifest(manifestPath))
+  const worker = await startWorker(readManifest(manifestPath))
+  const runCmd = { cmd: 'run', view: { resource: 'Observation' }, outCsv: join(dataRoot, 'out.csv') }
   await worker.send({ cmd: 'prepare', dataDir: dataRoot, resources: ['Observation'] }, { timeoutMs: 5000 })
+  expect((await worker.send(runCmd, { timeoutMs: 5000 })).outputRows).toBe(3)
+  // reset: the prepared dataset is gone
+  await worker.send({ cmd: 'reset' }, { timeoutMs: 5000 })
+  expect((await worker.send(runCmd, { timeoutMs: 5000 })).outputRows).toBe(0)
+  // replace-semantics: a second prepare does not accumulate onto the first
+  await worker.send({ cmd: 'prepare', dataDir: dataRoot, resources: ['Observation'] }, { timeoutMs: 5000 })
+  await worker.send({ cmd: 'prepare', dataDir: dataRoot, resources: [] }, { timeoutMs: 5000 })
+  expect((await worker.send(runCmd, { timeoutMs: 5000 })).outputRows).toBe(0)
+  await worker.shutdown()
+  rmSync(dataRoot, { recursive: true, force: true })
+})
+
+// ---- failure mapping raw material (8.4) ----
+
+test('a hook that crashes mid-command rejects with WorkerCrash', async () => {
+  const dataRoot = seedData()
+  const worker = await startWorker(readManifest(manifestPath))
   await expect(
     worker.send(
       { cmd: 'run', view: { resource: 'CrashMe' }, outCsv: join(dataRoot, 'x.csv') },
       { timeoutMs: 5000 },
     ),
   ).rejects.toBeInstanceOf(WorkerCrash)
+  await worker.waitExit()
   expect(worker.alive).toBe(false)
   rmSync(dataRoot, { recursive: true, force: true })
 })
 
-test('a worker that never responds rejects with WorkerTimeout after the budget', async () => {
+test('a hook that never responds rejects with WorkerTimeout after the budget', async () => {
   const dataRoot = seedData()
-  const worker = spawnWorker(readManifest(manifestPath))
+  const worker = await startWorker(readManifest(manifestPath))
   await expect(
     worker.send(
       { cmd: 'run', view: { resource: 'HangMe' }, outCsv: join(dataRoot, 'x.csv') },
@@ -101,23 +165,55 @@ test('a worker that never responds rejects with WorkerTimeout after the budget',
   rmSync(dataRoot, { recursive: true, force: true })
 })
 
-test('a non-JSON stdout line rejects with ProtocolError', async () => {
+test('a non-2xx response rejects with ProtocolError', async () => {
   const dataRoot = seedData()
-  const worker = spawnWorker(readManifest(manifestPath))
+  const worker = await startWorker(readManifest(manifestPath))
   await expect(
     worker.send(
-      { cmd: 'run', view: { resource: 'PolluteMe' }, outCsv: join(dataRoot, 'x.csv') },
+      { cmd: 'run', view: { resource: 'Http500Me' }, outCsv: join(dataRoot, 'x.csv') },
       { timeoutMs: 5000 },
     ),
   ).rejects.toBeInstanceOf(ProtocolError)
-  worker.kill()
-  await worker.waitExit()
+  await worker.shutdown()
   rmSync(dataRoot, { recursive: true, force: true })
+})
+
+test('an unparseable 2xx body rejects with ProtocolError', async () => {
+  const dataRoot = seedData()
+  const worker = await startWorker(readManifest(manifestPath))
+  await expect(
+    worker.send(
+      { cmd: 'run', view: { resource: 'GarbageMe' }, outCsv: join(dataRoot, 'x.csv') },
+      { timeoutMs: 5000 },
+    ),
+  ).rejects.toBeInstanceOf(ProtocolError)
+  await worker.shutdown()
+  rmSync(dataRoot, { recursive: true, force: true })
+})
+
+test('a slow but valid response inside the budget succeeds', async () => {
+  const dataRoot = seedData()
+  const worker = await startWorker(readManifest(manifestPath))
+  const resp = await worker.send(
+    { cmd: 'run', view: { resource: 'SlowMe' }, outCsv: join(dataRoot, 'x.csv') },
+    { timeoutMs: 5000 },
+  )
+  expect(resp.ok).toBe(true)
+  await worker.shutdown()
+  rmSync(dataRoot, { recursive: true, force: true })
+})
+
+// ---- spawn-mode termination (8.2) ----
+
+test('shutdown asks the hook service to exit and it does', async () => {
+  const worker = await startWorker(readManifest(manifestPath))
+  await worker.shutdown()
+  expect(worker.alive).toBe(false)
 })
 
 function stubbornManifest(dir) {
   const manifest = {
-    command: ['bun', join(import.meta.dir, 'fixtures/hooks/fake-hook.js')],
+    command: ['bun', fakeHookJs],
     env: { FAKE_IGNORE_SIGTERM: '1' },
     implementation: { engine: { name: 'fake-engine', version: '0.0.1' } },
   }
@@ -125,74 +221,75 @@ function stubbornManifest(dir) {
   return readManifest(join(dir, 'stubborn.hook.json'))
 }
 
-test('shutdown escalates to SIGKILL when the worker ignores shutdown and traps SIGTERM', async () => {
+test('shutdown escalates to SIGKILL when the hook ignores shutdown and traps SIGTERM', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'stubborn-'))
-  const worker = spawnWorker(stubbornManifest(dir))
-  await worker.send({ cmd: 'capabilities' }, { timeoutMs: 5000 })
+  const worker = await startWorker(stubbornManifest(dir))
   await worker.shutdown({ graceMs: 50 }) // must resolve, not hang the harness forever
   expect(worker.alive).toBe(false)
   rmSync(dir, { recursive: true, force: true })
 }, 10_000)
 
-test('kill() escalates to SIGKILL when the worker traps SIGTERM', async () => {
+test('kill() escalates to SIGKILL when the hook traps SIGTERM', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'stubborn-'))
-  const worker = spawnWorker(stubbornManifest(dir))
-  await worker.send({ cmd: 'capabilities' }, { timeoutMs: 5000 })
+  const worker = await startWorker(stubbornManifest(dir))
   worker.kill({ graceMs: 50 })
   await worker.waitExit() // must resolve once the escalation lands
   expect(worker.alive).toBe(false)
   rmSync(dir, { recursive: true, force: true })
 }, 10_000)
 
-// A stream 'error' (EPIPE) from a send racing worker death is swallowed by Bun
-// but crashes an unprepared Node process, so the regression scenario runs the
-// real worker client inside a node subprocess and must merely survive it.
-test.skipIf(!Bun.which('node'))(
-  'a send racing worker death cannot crash the harness process',
-  () => {
-    const dir = mkdtempSync(join(tmpdir(), 'epipe-'))
-    const script = `
-import { spawnWorker, WorkerCrash } from '${join(import.meta.dir, '../tools/harness/worker.js')}'
-const worker = spawnWorker({ command: ['bun', '-e', 'process.exit(0)'] })
-try {
-  // Large payload so the flush lands in the dead pipe (unknown fields are
-  // ignored by workers per benchmark-hook-format).
-  await worker.send({ cmd: 'capabilities', pad: 'x'.repeat(1 << 20) }, { timeoutMs: 3000 })
-} catch (err) {
-  console.log(err instanceof WorkerCrash ? 'WORKERCRASH' : 'OTHER:' + err.constructor.name)
-}
-await new Promise((r) => setTimeout(r, 500)) // window for a latent unhandled EPIPE to surface
-console.log('SURVIVED')
-`
-    writeFileSync(join(dir, 'race.mjs'), script)
-    const res = spawnSync('node', [join(dir, 'race.mjs')], { encoding: 'utf8', timeout: 15_000 })
-    expect(res.stderr).not.toMatch(/EPIPE/)
-    expect(res.status).toBe(0)
-    expect(res.stdout).toContain('WORKERCRASH')
-    expect(res.stdout).toContain('SURVIVED')
-    rmSync(dir, { recursive: true, force: true })
-  },
-  20_000,
-)
+// ---- setup failures are loud, not per-case (8.2) ----
 
-test('a spawn failure (missing command binary) rejects with WorkerCrash instead of crashing the harness', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'nospawn-'))
+test('a spawn failure (missing command binary) rejects with SetupError', async () => {
   const manifest = {
     command: ['definitely-not-a-real-binary-6f2a', 'hook.js'],
     implementation: { engine: { name: 'ghost', version: '0.0.1' } },
   }
-  writeFileSync(join(dir, 'ghost.hook.json'), JSON.stringify(manifest))
-  const worker = spawnWorker(readManifest(join(dir, 'ghost.hook.json')))
-  await expect(worker.send({ cmd: 'capabilities' }, { timeoutMs: 5000 })).rejects.toBeInstanceOf(WorkerCrash)
-  expect(worker.alive).toBe(false)
-  await worker.waitExit() // resolves: spawn failure is terminal, not a hang
-  await worker.shutdown() // returns immediately on a dead worker
-  rmSync(dir, { recursive: true, force: true })
+  await expect(startWorker(manifest)).rejects.toBeInstanceOf(SetupError)
 })
 
-test('shutdown asks the worker to exit and it does', async () => {
-  const worker = spawnWorker(readManifest(manifestPath))
-  await worker.send({ cmd: 'capabilities' }, { timeoutMs: 5000 })
+test('a hook that never becomes ready fails setup within the readiness budget', async () => {
+  const manifest = {
+    command: ['bun', fakeHookJs],
+    env: { FAKE_NEVER_READY: '1' },
+    implementation: { engine: { name: 'fake-engine', version: '0.0.1' } },
+  }
+  await expect(startWorker(manifest, { readinessMs: 400 })).rejects.toBeInstanceOf(SetupError)
+}, 10_000)
+
+// ---- connect-mode lifecycle (8.3) ----
+
+test('connect mode drives an operator-managed service and never terminates it', async () => {
+  const dataRoot = seedData()
+  const service = await startService()
+  const manifest = {
+    endpoint: service.endpoint,
+    implementation: { engine: { name: 'fake-engine', version: '0.0.1' } },
+  }
+  const worker = await startWorker(manifest)
+  expect(worker.mode).toBe('connect')
+  expect(worker.capabilities.ok).toBe(true)
+  await worker.send({ cmd: 'prepare', dataDir: dataRoot, resources: ['Observation'] }, { timeoutMs: 5000 })
+  const run = await worker.send(
+    { cmd: 'run', view: { resource: 'Observation' }, outCsv: join(dataRoot, 'out.csv') },
+    { timeoutMs: 5000 },
+  )
+  expect(run.outputRows).toBe(3)
+  // shutdown is a no-op in connect mode: no shutdown command, no termination
   await worker.shutdown()
-  expect(worker.alive).toBe(false)
+  worker.kill()
+  const after = await fetch(`${service.endpoint}/capabilities`)
+  expect(after.ok).toBe(true)
+  expect(service.alive()).toBe(true)
+  service.stop()
+  rmSync(dataRoot, { recursive: true, force: true })
+})
+
+test('an initial connection refusal in connect mode rejects with SetupError', async () => {
+  const port = await freePort() // nothing listens there
+  const manifest = {
+    endpoint: `http://127.0.0.1:${port}`,
+    implementation: { engine: { name: 'ghost', version: '0.0.1' } },
+  }
+  await expect(startWorker(manifest)).rejects.toBeInstanceOf(SetupError)
 })
