@@ -3,6 +3,8 @@
 //
 //   BoomMe        -> write diagnostics to stderr and exit 3
 //   HangMe        -> never exit (harness inactivity budget -> timeout)
+//   IgnoreTermMe  -> trap SIGTERM, write "ready" to the out CSV, then hang
+//                    (forces the connector's SIGKILL escalation)
 //   anything else -> write a CSV with one row per line of <dataDir>/<resource>.ndjson
 //
 // argv: <dataDir> <viewFile> --out=<outCsv> [extras...]
@@ -25,6 +27,10 @@ if (view.resource === 'BoomMe') {
   process.stderr.write('engine exploded loudly\n')
   process.exit(3)
 } else if (view.resource === 'HangMe') {
+  setInterval(() => {}, 1 << 30)
+} else if (view.resource === 'IgnoreTermMe') {
+  process.on('SIGTERM', () => {})
+  writeFileSync(outCsv, 'ready') // the handler is installed once this appears
   setInterval(() => {}, 1 << 30)
 } else {
   const txt = readFileSync(join(dataDir, `${view.resource}.ndjson`), 'utf8')

@@ -13,7 +13,7 @@ class HookError extends Error {}
 
 // A failure of the run as a whole (e.g. the hook does not declare the requested
 // scenario) — never recorded as a per-case status.
-class SuiteError extends Error {}
+export class SuiteError extends Error {}
 
 const PHASES = { preloaded_repeated: ['execute', 'extract'], end_to_end: ['load', 'execute', 'extract'] }
 

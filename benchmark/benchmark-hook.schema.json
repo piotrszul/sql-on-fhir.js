@@ -41,12 +41,12 @@
     },
     "cwd": {
       "type": "string",
-      "description": "Spawn mode: working directory for the hook service. A relative path is resolved against the manifest file's own directory (the default)."
+      "description": "Spawn and CLI modes: working directory for the spawned process (the hook service, or each per-run engine process). A relative path is resolved against the manifest file's own directory (the default)."
     },
     "env": {
       "type": "object",
       "additionalProperties": { "type": "string" },
-      "description": "Spawn mode: extra environment variables for the hook process, merged over the harness's environment."
+      "description": "Spawn and CLI modes: extra environment variables for the spawned process, merged over the harness's environment."
     },
     "implementation": {
       "type": "object",

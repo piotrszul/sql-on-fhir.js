@@ -7,7 +7,7 @@ import { createServer } from 'node:net'
 import Ajv from 'ajv'
 import reportSchema from '../benchmark-report.schema.json'
 import { readManifest } from '../tools/harness/manifest.js'
-import { runSuite } from '../tools/harness/runner.js'
+import { runSuite, SuiteError } from '../tools/harness/runner.js'
 import { datasetDir } from '../tools/layout.js'
 
 const validateReport = new Ajv({ strict: false }).compile(reportSchema)
@@ -505,9 +505,14 @@ test('CLI end_to_end: conforming report, one fresh engine process per sample, id
 test('CLI preloaded_repeated is refused as a run-level failure naming the declared scenarios', async () => {
   const dataRoot = seedData()
   const logDir = mkdtempSync(join(tmpdir(), 'clilog-'))
-  await expect(
-    run({ dataRoot, manifest: cliManifest(logDir), scenario: 'preloaded_repeated' }),
-  ).rejects.toThrow(/scenario.*end_to_end/i)
+  const err = await run({ dataRoot, manifest: cliManifest(logDir), scenario: 'preloaded_repeated' }).then(
+    () => {
+      throw new Error('expected the run to be refused')
+    },
+    (e) => e,
+  )
+  expect(err).toBeInstanceOf(SuiteError)
+  expect(err.message).toMatch(/scenario.*end_to_end/i)
   rmSync(logDir, { recursive: true, force: true })
   rmSync(dataRoot, { recursive: true, force: true })
 })

@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { killProcessGroup, terminateGroup } from './proc.js'
+import { terminateGroup } from './proc.js'
 import { WorkerCrash, WorkerTimeout, SetupError, ProtocolError } from './worker.js'
 
 // The CLI connector (benchmark-hook-format "CLI hook mode"): a stateless
@@ -114,7 +114,8 @@ export function startCliConnector(manifest) {
           dataDir = cmd.dataDir
           return Promise.resolve({ ok: true })
         case 'reset':
-          dataDir = null
+          // No-op: every run spawns fresh, so the connector is cold by
+          // construction. The prepared dataset location survives reset.
           return Promise.resolve({ ok: true })
         case 'run':
           return runOnce(cmd, timeoutMs)
@@ -128,8 +129,9 @@ export function startCliConnector(manifest) {
       if (inFlight) terminateGroup(inFlight, () => inFlight?.exitCode !== null)
       rmSync(workDir, { recursive: true, force: true })
     },
-    kill() {
-      if (inFlight) killProcessGroup(inFlight, 'SIGTERM')
+    kill({ graceMs = 2000 } = {}) {
+      const child = inFlight
+      if (child) terminateGroup(child, () => child.exitCode !== null, { graceMs })
     },
     waitExit: () => Promise.resolve(),
   }

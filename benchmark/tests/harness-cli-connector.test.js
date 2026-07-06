@@ -167,6 +167,47 @@ test('a hung engine process maps to WorkerTimeout and its process group is kille
   rmSync(workDir, { recursive: true, force: true })
 })
 
+test('reset is a no-op: a prepared dataset survives reset (cold by construction)', async () => {
+  const workDir = seed()
+  const conn = await startConnector(cliManifest(workDir))
+  await conn.send({ cmd: 'prepare', dataDir: workDir, resources: ['Observation'] })
+  await conn.send({ cmd: 'reset' })
+  const resp = await conn.send(
+    { cmd: 'run', view: { resource: 'Observation' }, outCsv: join(workDir, 'o.csv') },
+    { timeoutMs: 10_000 },
+  )
+  expect(resp.ok).toBe(true)
+  expect(spawnsOf(workDir)).toHaveLength(1)
+  await conn.shutdown()
+  rmSync(workDir, { recursive: true, force: true })
+})
+
+test('kill escalates SIGTERM -> SIGKILL on an in-flight engine that ignores SIGTERM', async () => {
+  const workDir = seed()
+  const conn = await startConnector(cliManifest(workDir))
+  await conn.send({ cmd: 'prepare', dataDir: workDir, resources: ['Observation'] })
+  const outCsv = join(workDir, 'k.csv')
+  const running = conn.send({ cmd: 'run', view: { resource: 'IgnoreTermMe' }, outCsv })
+  running.catch(() => {}) // settled below; avoid an unhandled-rejection window
+  // the engine writes the CSV only after its SIGTERM trap is installed
+  while (!existsSync(outCsv)) await new Promise((r) => setTimeout(r, 20))
+  conn.kill({ graceMs: 150 })
+  await expect(running).rejects.toBeInstanceOf(WorkerCrash)
+  const { pid } = spawnsOf(workDir)[0]
+  const deadline = Date.now() + 5000
+  for (;;) {
+    try {
+      process.kill(pid, 0)
+    } catch {
+      break // gone
+    }
+    if (Date.now() > deadline) throw new Error(`engine process ${pid} survived kill escalation`)
+    await new Promise((r) => setTimeout(r, 50))
+  }
+  await conn.shutdown()
+  rmSync(workDir, { recursive: true, force: true })
+})
+
 test('an unknown placeholder fails setup loudly, before any engine process is spawned', async () => {
   const workDir = seed()
   const template = ['bun', fakeCliJs, '{dataDir}', '{viewfile}', '--out={outCsv}']
