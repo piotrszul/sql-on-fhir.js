@@ -36,8 +36,9 @@ the recipe's `resources` are kept; siblings are pruned.
 
 ## Benchmark an implementation (the hook route — recommended)
 
-You do not write a runner. You write a **hook** — a small local HTTP service
-plus a manifest — and the shared reference harness (`tools/harness/`) owns the
+You do not write a runner. You write a **hook** — for a service-style engine a
+small local HTTP service plus a manifest, for a stateless CLI tool just the
+manifest — and the shared reference harness (`tools/harness/`) owns the
 measurement loop, the wall clock, the row-count verification, the report, and
 the JMH export. Comparability is by construction: one codebase computes every
 comparability-critical number.
@@ -59,8 +60,11 @@ declaring **exactly one lifecycle mode**:
 - `endpoint` (**connect mode**, e.g. `"endpoint": "http://127.0.0.1:8095"`):
   your service is operator-managed (started by hand, docker-compose, …); the
   harness only connects — it never sends `shutdown` and never terminates it.
+- `cli` (**CLI mode**): no service and no code at all — an argv template the
+  harness spawns fresh per run. See "CLI tool? Zero code." below.
 
-The service answers five command endpoints with JSON bodies:
+In spawn and connect modes, the service answers five command endpoints with
+JSON bodies:
 
 1. `GET /capabilities` → `{"ok":true,"scenarios":["preloaded_repeated","end_to_end"]}`
 2. `POST /prepare` `{"dataDir":…,"resources":[…]}` — load the NDJSON into your
@@ -141,8 +145,49 @@ Note `preloaded_repeated` means warm: for a server-backed engine the server's
 cache state persists across samples — that is what "preloaded" measures, not
 cold-query cost.
 
+### CLI tool? Zero code.
+
+If your implementation is a stateless command-line tool (one invocation =
+load + execute + extract), the entire hook is a manifest:
+
+```json
+{
+  "cli": {
+    "run": ["flatquack", "--input", "{dataDir}", "--view", "{viewFile}", "--output", "{outCsv}"]
+  },
+  "implementation": { "engine": { "name": "flatquack", "version": "0.3.0" } }
+}
+```
+
+The harness substitutes `{dataDir}` (the materialized dataset directory),
+`{viewFile}` (a temp file it writes with the case's ViewDefinition JSON) and
+`{outCsv}` (where to write the CSV) — as substrings within elements, so
+`--out={outCsv}` works — and spawns the argv directly, never via a shell.
+Exit 0 with the CSV fully written means success; a non-zero exit fails that
+case with your stderr tail as the diagnostic. Each timed sample spawns one
+fresh process, so a CLI hook serves `end_to_end` only, and its timed region
+deliberately INCLUDES your process startup (interpreter/JVM boot): that is
+the real cost of a one-off CLI invocation. Numbers from a CLI hook and a
+server hook of the same engine are therefore different deployments — ship
+one manifest per deployment, told apart by `implementation.variant`.
+
+### Which scenarios should my hook declare?
+
+Two verb-level questions decide it:
+
+| your architecture can…                          | declare                |
+| ----------------------------------------------- | ---------------------- |
+| hold prepared state across `run` round-trips    | `preloaded_repeated`   |
+| return to dataset-cold cheaply (restart, honest `reset`, or fresh process) | `end_to_end` |
+
+A stateless CLI tool answers no to the first (the harness fixes its declared
+scenarios to `end_to_end` for you); a server that cannot truly discard state
+on `reset` answers no to the second in connect mode and should omit
+`end_to_end` there rather than ship warm numbers as cold.
+
 Hooks live in your implementation's repo; `sof-js/hook.json` + `sof-js/src/hook.js`
-in this repository are the worked example.
+in this repository are the worked example of an HTTP hook, and
+`benchmark/tests/fixtures/hooks/fake-cli.hook.json` of a CLI one.
 
 ## Hand-rolled runner (the escape hatch)
 

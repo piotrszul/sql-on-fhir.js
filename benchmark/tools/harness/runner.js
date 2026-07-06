@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { startWorker, SetupError, WorkerTimeout } from './worker.js'
+import { startConnector, SetupError, WorkerTimeout } from './worker.js'
 import { datasetDir } from '../layout.js'
 import { assertionFor, countLines } from '../checkfile.js'
 import { countCsvRows } from './csv-count.js'
@@ -13,7 +13,7 @@ class HookError extends Error {}
 
 // A failure of the run as a whole (e.g. the hook does not declare the requested
 // scenario) — never recorded as a per-case status.
-class SuiteError extends Error {}
+export class SuiteError extends Error {}
 
 const PHASES = { preloaded_repeated: ['execute', 'extract'], end_to_end: ['load', 'execute', 'extract'] }
 
@@ -238,11 +238,11 @@ export async function runSuite({
     return entry
   }
 
-  // Bring-up + capabilities gate: startWorker resolves only once the hook has
-  // answered `capabilities` (readiness), and the harness never drives a hook
-  // through a scenario it did not declare (benchmark-hook-format).
+  // Bring-up + capabilities gate: startConnector resolves only once the hook
+  // has answered `capabilities` (readiness), and the harness never drives a
+  // hook through a scenario it did not declare (benchmark-hook-format).
   async function startGated() {
-    const worker = await startWorker(manifest, readinessMs ? { readinessMs } : {})
+    const worker = await startConnector(manifest, readinessMs ? { readinessMs } : {})
     const declared = worker.capabilities.scenarios
     if (!declared?.includes(scenario)) {
       await worker.shutdown()

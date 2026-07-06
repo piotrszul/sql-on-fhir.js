@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
 import { createServer } from 'node:net'
+import { killProcessGroup, terminateGroup } from './proc.js'
 
 // A hook misbehaving in one of three distinguishable ways, each mapping onto
 // the report status taxonomy differently (benchmark-harness spec):
@@ -79,15 +80,23 @@ function makeSend(base, isDead) {
   }
 }
 
-// Bring up a hook per its manifest's lifecycle mode (benchmark-hook-format):
-// spawn mode starts the service from `command` with an OS-allocated port in
-// HOOK_PORT and polls readiness; connect mode reaches the operator-managed
-// service at `endpoint`. Resolves once `capabilities` has answered validly
-// (spawn and readiness are untimed by every scenario); the response is kept on
-// the returned client so callers gate scenarios without a second round-trip.
-export function startWorker(manifest, opts = {}) {
-  return manifest.endpoint ? connectHook(manifest) : spawnHook(manifest, opts)
+// Bring up a connector per the manifest's lifecycle mode (the connector SPI,
+// benchmark-harness spec): `endpoint` -> HTTP connect (operator-managed
+// service), `cli` -> the CLI connector (fresh engine process per run),
+// otherwise `command` -> HTTP spawn (service started with an OS-allocated
+// port in HOOK_PORT, readiness polled). Resolves once `capabilities` has
+// answered (spawn and readiness are untimed by every scenario); the response
+// is kept on the returned connector so callers gate scenarios without a
+// second round-trip.
+export async function startConnector(manifest, opts = {}) {
+  if (manifest.endpoint) return connectHook(manifest)
+  if (manifest.cli) return (await import('./cli-connector.js')).startCliConnector(manifest)
+  return spawnHook(manifest, opts)
 }
+
+// Pre-SPI name, kept so the original worker test suite runs verbatim as the
+// behaviour-preservation regression guard.
+export const startWorker = startConnector
 
 async function connectHook(manifest) {
   const base = manifest.endpoint.replace(/\/+$/, '')
@@ -142,16 +151,7 @@ async function spawnHook(manifest, { readinessMs = 30_000 } = {}) {
     settle()
   })
 
-  function killGroup(signal) {
-    if (child.pid == null) return
-    try {
-      process.kill(-child.pid, signal)
-    } catch {
-      try {
-        child.kill(signal)
-      } catch {}
-    }
-  }
+  const killGroup = (signal) => killProcessGroup(child, signal)
 
   // Readiness: poll GET /capabilities until a VALID body arrives (ok:true — so
   // "something else answered on that port" never reads as ready) within the
@@ -209,14 +209,7 @@ async function spawnHook(manifest, { readinessMs = 30_000 } = {}) {
     },
 
     kill({ graceMs = 2000 } = {}) {
-      if (exited) return
-      killGroup('SIGTERM')
-      // Fire-and-forget escalation: unref'd so an already-dying hook never
-      // keeps the harness process alive just to deliver a redundant SIGKILL.
-      const kill = setTimeout(() => {
-        if (!exited) killGroup('SIGKILL')
-      }, graceMs)
-      kill.unref?.()
+      terminateGroup(child, () => exited, { graceMs })
     },
 
     waitExit,

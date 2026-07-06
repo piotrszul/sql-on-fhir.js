@@ -1,0 +1,9 @@
+{
+  "cli": {
+    "run": ["bun", "fake-cli.js", "{dataDir}", "{viewFile}", "--out={outCsv}"]
+  },
+  "implementation": {
+    "engine": { "name": "fake-cli-engine", "version": "0.0.1" },
+    "variant": "cli-test"
+  }
+}

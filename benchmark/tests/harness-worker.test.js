@@ -79,6 +79,21 @@ test('readManifest passes a connect-mode manifest through without inventing a cw
   expect(m.cwd).toBeUndefined()
 })
 
+test('readManifest resolves a CLI manifest cwd to the manifest dir, like spawn mode', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'manifest-'))
+  writeFileSync(
+    join(dir, 'tool.hook.json'),
+    JSON.stringify({
+      cli: { run: ['tool', '--out', '{outCsv}'] },
+      implementation: { engine: { name: 'tool', version: '1.0.0' } },
+    }),
+  )
+  const m = readManifest(join(dir, 'tool.hook.json'))
+  expect(m.cli.run[0]).toBe('tool')
+  expect(m.cwd).toBe(dir)
+  rmSync(dir, { recursive: true, force: true })
+})
+
 // ---- spawn-mode lifecycle and protocol client (8.2, 8.4) ----
 
 test('startWorker spawns on an assigned HOOK_PORT, polls readiness, and exposes capabilities', async () => {

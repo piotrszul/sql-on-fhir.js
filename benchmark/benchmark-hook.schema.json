@@ -2,10 +2,10 @@
   "$id": "https://sql-on-fhir.org/ig/benchmark-hook",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "SQL on FHIR benchmark hook manifest schema",
-  "description": "Declarative manifest describing a benchmark hook: EXACTLY ONE lifecycle mode — `command` (spawn mode: the harness starts the hook service with an assigned HOOK_PORT and owns termination) or `endpoint` (connect mode: an operator-managed hook service the harness only connects to) — plus the STATIC identity of the implementation under test. The harness copies `implementation` into the emitted report verbatim. The hook protocol itself (JSON over local HTTP) is specified in the benchmark-hook-format capability.",
+  "description": "Declarative manifest describing a benchmark hook: EXACTLY ONE lifecycle mode — `command` (spawn mode: the harness starts the hook service with an assigned HOOK_PORT and owns termination), `endpoint` (connect mode: an operator-managed hook service the harness only connects to), or `cli` (CLI mode: an argv template the harness spawns fresh per run; no service, no implementation-side code) — plus the STATIC identity of the implementation under test. The harness copies `implementation` into the emitted report verbatim. The hook protocol itself (JSON over local HTTP) is specified in the benchmark-hook-format capability.",
   "type": "object",
   "required": ["implementation"],
-  "oneOf": [{ "required": ["command"] }, { "required": ["endpoint"] }],
+  "oneOf": [{ "required": ["command"] }, { "required": ["endpoint"] }, { "required": ["cli"] }],
   "definitions": {
     "nameVersion": {
       "type": "object",
@@ -25,14 +25,28 @@
       "type": "string",
       "description": "Connect mode: localhost base URL of an operator-managed hook service (e.g. http://127.0.0.1:8095). The harness only connects; it never sends shutdown and never terminates the service."
     },
+    "cli": {
+      "type": "object",
+      "required": ["run"],
+      "properties": {
+        "run": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1,
+          "description": "CLI mode: argv template spawned fresh per run (first element is the executable; no shell). The placeholders {dataDir}, {viewFile} and {outCsv} are substituted as substrings within each element; the template must use {outCsv}."
+        }
+      },
+      "additionalProperties": false,
+      "description": "CLI mode: a stateless command-line hook described entirely by an argv template. The harness synthesizes the capabilities handshake (end_to_end only) and spawns one fresh engine process per run."
+    },
     "cwd": {
       "type": "string",
-      "description": "Spawn mode: working directory for the hook service. A relative path is resolved against the manifest file's own directory (the default)."
+      "description": "Spawn and CLI modes: working directory for the spawned process (the hook service, or each per-run engine process). A relative path is resolved against the manifest file's own directory (the default)."
     },
     "env": {
       "type": "object",
       "additionalProperties": { "type": "string" },
-      "description": "Spawn mode: extra environment variables for the hook process, merged over the harness's environment."
+      "description": "Spawn and CLI modes: extra environment variables for the spawned process, merged over the harness's environment."
     },
     "implementation": {
       "type": "object",

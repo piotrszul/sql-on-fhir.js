@@ -1,40 +1,37 @@
-# benchmark-harness Specification
+# benchmark-harness — delta for connector-spi
 
-## Purpose
+## ADDED Requirements
 
-Defines the shared reference harness — the engine-neutral tool that owns the
-benchmark measurement loop and the normative wall-clock timing of hook `run`
-round-trips, enforces the two measurement scenarios (`preloaded_repeated` and
-`end_to_end`) through process control of the hook's lifecycle, drives hooks
-through the connector SPI (HTTP spawn/connect and CLI connectors), maps worker
-failures onto the report status taxonomy with per-case isolation, verifies
-output row counts from the written CSV independently of the engine under test,
-and emits the native benchmark report plus its JMH export projection.
-## Requirements
-### Requirement: Harness owns the measurement loop and the normative timing
+### Requirement: Harness drives hooks through the connector SPI
 
-The reference harness SHALL own the measurement loop and the clock: for each
-measured sample it wall-clock times one `run` command round-trip (HTTP request
-written → response fully received, which by the hook contract arrives only
-after the CSV is fully written). These
-harness-timed round-trips ARE the report's `samplesMs`; no implementation
-carries timing code, and hook-reported `phasesMs` are recorded only as the
-advisory `phaseSamplesMs`. Warmup iterations SHALL be discarded. The harness
-SHALL take its recommended warmup/measurement counts from the benchmark file's
-`iterations` and SHALL record the counts actually used in the report's
-`measurement` block.
+The harness SHALL drive every scenario through the connector SPI — the
+harness-internal interface `{ mode, capabilities, implementation, alive,
+send(command), shutdown(), kill() }` — and SHALL select the connector from
+the manifest's lifecycle discriminator: `endpoint` → HTTP connect connector,
+`command` → HTTP spawn connector, `cli` → CLI connector. Scenario logic
+SHALL remain in the harness's measurement loops; a connector only translates
+protocol commands to its transport. The two HTTP connectors SHALL preserve
+the pre-SPI worker behaviour exactly. The SPI is a harness extension seam,
+not a public contract: the language-neutral contract for out-of-process
+hooks remains the HTTP protocol, and implementer-supplied connector modules
+are out of scope for this change.
 
-#### Scenario: samplesMs are harness wall-clock round-trips
+#### Scenario: Connector selection follows the manifest
 
-- **WHEN** the harness measures a case with `measurement: 5`
-- **THEN** the case's `samplesMs` are exactly five harness-measured `run`
-  round-trip times, and any hook-reported `phasesMs` appear only as
-  `phaseSamplesMs`
+- **WHEN** the harness is given manifests declaring `endpoint`, `command`,
+  and `cli` respectively
+- **THEN** it drives the same scenario loops through the HTTP connect, HTTP
+  spawn, and CLI connectors respectively, with no scenario logic in any
+  connector
 
-#### Scenario: Warmup runs are discarded
+#### Scenario: HTTP hooks are unaffected by the SPI refactor
 
-- **WHEN** the harness runs a case with `warmup: 2` and `measurement: 5`
-- **THEN** it issues seven `run` commands and reports five samples
+- **WHEN** an existing spawn- or connect-mode HTTP hook runs under the
+  refactored harness
+- **THEN** its lifecycle, timing, failure mapping, and report output are
+  unchanged from the pre-SPI harness
+
+## MODIFIED Requirements
 
 ### Requirement: Scenario semantics are enforced by process control
 
@@ -169,81 +166,3 @@ recording per-case noise.
   omits `{outCsv}`
 - **THEN** the harness reports a setup failure for the run before attempting
   any case
-
-### Requirement: Verification counts rows from the written CSV
-
-For each successful `run` the harness SHALL derive the case's output row count
-by counting the rows of the CSV file the hook wrote, and SHALL apply the
-work-verification guard against the checkfile assertion for that case and size
-using THAT count — so verification is independent of the engine under test. The
-guard follows the reference-runner contract: present + match ⇒ `ok`; present +
-mismatch (and not count-variance-permitted) ⇒ `count_mismatch`; absent ⇒ `ok`
-(recorded as unverified via the report's `verified` flag). A hook-reported
-`outputRows` disagreeing with the harness count is surfaced in the advisory
-`message`.
-
-#### Scenario: The harness count feeds the guard
-
-- **WHEN** a hook writes a CSV with 48908 rows and the checkfile assertion for
-  the case and size is 48908
-- **THEN** the case is `ok` with `verified: true`, regardless of what
-  `outputRows` the hook reported
-
-#### Scenario: CSV-derived mismatch is flagged
-
-- **WHEN** the harness's CSV count differs from a present assertion on a case
-  that is not count-variance-permitted
-- **THEN** the case is recorded as `count_mismatch`
-
-### Requirement: Harness emits the native report and the JMH export
-
-The harness SHALL emit the native report conforming to
-`benchmark-report.schema.json` — sourcing `implementation` verbatim from the
-hook manifest, benchmark and dataset identity from the authored suite, and
-per-case results keyed by the stable case `id` — and SHALL be able to emit the
-JMH export as a projection of that report per `benchmark-jmh-format`. The
-harness VERIFIES against an existing checkfile only; bless mode (writing the
-checkfile, with the analytic cross-check) remains the sof-js reference
-implementation's concern per the reference-runner contract.
-
-#### Scenario: One harness run yields report and optional JMH files
-
-- **WHEN** the harness completes a run with a JMH output directory configured
-- **THEN** it writes a conforming native report and the per
-  `(benchmark, size, implementation)` JMH export files projected from that
-  report
-
-#### Scenario: The harness does not bless
-
-- **WHEN** the harness runs against a suite with no checkfile present
-- **THEN** it does not create one — cases are reported `ok` but unverified —
-  and blessing remains a sof-js `--record` operation
-
-### Requirement: Harness drives hooks through the connector SPI
-
-The harness SHALL drive every scenario through the connector SPI — the
-harness-internal interface `{ mode, capabilities, implementation, alive,
-send(command), shutdown(), kill() }` — and SHALL select the connector from
-the manifest's lifecycle discriminator: `endpoint` → HTTP connect connector,
-`command` → HTTP spawn connector, `cli` → CLI connector. Scenario logic
-SHALL remain in the harness's measurement loops; a connector only translates
-protocol commands to its transport. The two HTTP connectors SHALL preserve
-the pre-SPI worker behaviour exactly. The SPI is a harness extension seam,
-not a public contract: the language-neutral contract for out-of-process
-hooks remains the HTTP protocol, and implementer-supplied connector modules
-are out of scope for this change.
-
-#### Scenario: Connector selection follows the manifest
-
-- **WHEN** the harness is given manifests declaring `endpoint`, `command`,
-  and `cli` respectively
-- **THEN** it drives the same scenario loops through the HTTP connect, HTTP
-  spawn, and CLI connectors respectively, with no scenario logic in any
-  connector
-
-#### Scenario: HTTP hooks are unaffected by the SPI refactor
-
-- **WHEN** an existing spawn- or connect-mode HTTP hook runs under the
-  refactored harness
-- **THEN** its lifecycle, timing, failure mapping, and report output are
-  unchanged from the pre-SPI harness
