@@ -5,7 +5,8 @@
 Defines the shared reference harness — the engine-neutral tool that owns the
 benchmark measurement loop and the normative wall-clock timing of hook `run`
 round-trips, enforces the two measurement scenarios (`preloaded_repeated` and
-`end_to_end`) through process control of the hook's lifecycle, maps worker
+`end_to_end`) through process control of the hook's lifecycle, drives hooks
+through the connector SPI (HTTP spawn/connect and CLI connectors), maps worker
 failures onto the report status taxonomy with per-case isolation, verifies
 output row counts from the written CSV independently of the engine under test,
 and emits the native benchmark report plus its JMH export projection.
@@ -39,20 +40,28 @@ SHALL take its recommended warmup/measurement counts from the benchmark file's
 
 The harness SHALL implement both measurement scenarios with their timed
 regions enforced by how it manages the hook's lifecycle, per the report
-format's load-boundary distinction. For `preloaded_repeated` (both lifecycle
-modes): setup (untimed) → `prepare` (untimed) → warmup `run`s (discarded) →
-measured `run`s (each timed) → `shutdown` (spawn mode only). For `end_to_end`
-in SPAWN mode: spawn + readiness (untimed — process/VM startup is not ETL
-cost) → a timed region covering the `prepare` + `run` round-trips (phases
-`load` + `execute` + `extract`) → a SERVICE RESTART between samples, so that
-every sample is dataset-cold BY CONSTRUCTION: the harness never sent the
-dataset to that process before the timed sample. For `end_to_end` in CONNECT
-mode: an UNTIMED `reset` precedes each timed `prepare` + `run` region;
-dataset-coldness rests on the hook honouring the reset contract (trusted —
-the service's process, and therefore its runtime warmth, persists across
-samples). The harness SHALL emit a report whose `measurement.scenario`,
-`phases`, `sink` (`csv`), and warmup/iteration counts describe what it
-actually did, and SHALL NOT emit a scenario it did not drive.
+format's load-boundary distinction. For `preloaded_repeated` (HTTP hooks,
+both lifecycle modes): setup (untimed) → `prepare` (untimed) → warmup `run`s
+(discarded) → measured `run`s (each timed) → `shutdown` (spawn mode only).
+For `end_to_end` in SPAWN mode: spawn + readiness (untimed — process/VM
+startup of the hook SERVICE is not ETL cost) → a timed region covering the
+`prepare` + `run` round-trips (phases `load` + `execute` + `extract`) → a
+SERVICE RESTART between samples, so that every sample is dataset-cold BY
+CONSTRUCTION: the harness never sent the dataset to that process before the
+timed sample. For `end_to_end` in CONNECT mode: an UNTIMED `reset` precedes
+each timed `prepare` + `run` region; dataset-coldness rests on the hook
+honouring the reset contract (trusted — the service's process, and therefore
+its runtime warmth, persists across samples). For `end_to_end` with a CLI
+hook: each measured sample's timed region covers the `prepare` (a connector
+no-op) and `run` round-trips, where `run` spawns a FRESH engine process from
+the manifest's argv template and answers only after it exits — every sample
+is dataset-cold by construction, and the engine process's own startup lands
+INSIDE the timed region deliberately: it is the real cost of a one-off CLI
+invocation (the untimed-startup rule above applies to hook SERVICES, not to
+the engine command itself). The harness SHALL emit a report whose
+`measurement.scenario`, `phases`, `sink` (`csv`), and warmup/iteration
+counts describe what it actually did, and SHALL NOT emit a scenario it did
+not drive.
 
 #### Scenario: preloaded_repeated excludes load from every sample
 
@@ -76,6 +85,13 @@ actually did, and SHALL NOT emit a scenario it did not drive.
 - **THEN** it sends an untimed `reset` before each sample's timed
   `prepare` + `run` region, and never restarts the operator-managed service
 
+#### Scenario: CLI end_to_end samples time one fresh engine process each
+
+- **WHEN** the harness collects `end_to_end` samples for a CLI hook
+- **THEN** each sample's timed region covers the spawn-to-exit lifetime of
+  one fresh engine process (including its startup), and the report declares
+  `phases: ["load", "execute", "extract"]`
+
 #### Scenario: The report never claims an unenforced scenario
 
 - **WHEN** the harness produces a report
@@ -88,22 +104,31 @@ The harness SHALL own the hook's lifecycle per the manifest's mode — in spawn
 mode: start from `command`, probe readiness via `capabilities` within a
 budget, `shutdown` on completion, terminate on abandonment; in connect mode:
 connect to `endpoint`; `shutdown` is NOT sent and the service is never
-terminated by the harness. Failures SHALL map onto the report status taxonomy
-per its best-effort rules: a transport-level failure while a case is in
-flight (connection refused or reset, non-2xx status, unparseable body, or —
-spawn mode — the hook process dying) yields `execution_error` for that case;
-a command exceeding the harness's OWN out-of-band inactivity budget yields
-`timeout` for the in-flight case (spawn mode additionally kills the hook
-process); an `{"ok":false}` response yields `execution_error` with the hook's
-`error` recorded as the advisory `message`. After losing a hook the harness
-SHALL restore a usable one to continue with the remaining cases — respawn in
-spawn mode, reconnect (with `reset` + re-`prepare` where the scenario
-requires) in connect mode — preserving the reference-runner contract's
-per-case failure isolation: a failing case never aborts the run nor voids
-other cases' recorded results, and a partial run still emits a valid report.
-A spawn-mode hook that never becomes ready within the readiness budget, or a
-connect-mode endpoint that refuses the initial connection, SHALL fail the
-run's setup loudly rather than recording per-case noise.
+terminated by the harness; for a CLI hook: no long-lived process exists, and
+the connector spawns one engine process per `run`, in its own process group.
+Failures SHALL map onto the report status taxonomy per its best-effort
+rules: a transport-level failure while a case is in flight (connection
+refused or reset, non-2xx status, unparseable body, or — spawn mode — the
+hook process dying; for a CLI hook — the engine process failing to spawn)
+yields `execution_error` for that case; a command exceeding the harness's
+OWN out-of-band inactivity budget yields `timeout` for the in-flight case
+(spawn mode kills the hook process; a CLI connector kills the in-flight
+engine process group); an `{"ok":false}` response — for a CLI hook, a
+non-zero engine exit, with a stderr tail as the `error` — yields
+`execution_error` with the hook's `error` recorded as the advisory
+`message`. After losing a hook the harness SHALL restore a usable one to
+continue with the remaining cases — respawn in spawn mode, reconnect (with
+`reset` + re-`prepare` where the scenario requires) in connect mode; a CLI
+connector is usable again by construction, since the next `run` spawns
+fresh — preserving the reference-runner contract's per-case failure
+isolation: a failing case never aborts the run nor voids other cases'
+recorded results, and a partial run still emits a valid report. All stock
+connectors SHALL keep the engine in a separate OS process, so a hook crash
+or hang can never take the harness down with it. A spawn-mode hook that
+never becomes ready within the readiness budget, a connect-mode endpoint
+that refuses the initial connection, or a CLI manifest whose template fails
+placeholder validation SHALL fail the run's setup loudly rather than
+recording per-case noise.
 
 #### Scenario: Worker crash mid-case is recorded and the run continues
 
@@ -118,12 +143,32 @@ run's setup loudly rather than recording per-case noise.
   in spawn mode, and continues with the remaining cases against a restored
   hook
 
+#### Scenario: Hung CLI engine process maps to timeout
+
+- **WHEN** a CLI hook's engine process produces no exit within the harness's
+  inactivity budget
+- **THEN** the harness kills that process group, records the case as
+  `timeout`, and the remaining cases run normally with fresh processes
+
+#### Scenario: Non-zero CLI exit is an engine failure, not a crash
+
+- **WHEN** a CLI hook's engine process exits non-zero for one case
+- **THEN** that case is recorded as `execution_error` with a stderr tail in
+  its advisory `message`, and the remaining cases are attempted normally
+
 #### Scenario: Readiness failure aborts setup loudly
 
 - **WHEN** a spawn-mode hook never answers `capabilities` validly within the
   readiness budget
 - **THEN** the harness reports a setup failure for the run rather than
   recording every case as a per-case failure
+
+#### Scenario: Invalid CLI template aborts setup loudly
+
+- **WHEN** a CLI manifest's `run` template contains an unknown placeholder or
+  omits `{outCsv}`
+- **THEN** the harness reports a setup failure for the run before attempting
+  any case
 
 ### Requirement: Verification counts rows from the written CSV
 
@@ -173,3 +218,32 @@ implementation's concern per the reference-runner contract.
 - **WHEN** the harness runs against a suite with no checkfile present
 - **THEN** it does not create one — cases are reported `ok` but unverified —
   and blessing remains a sof-js `--record` operation
+
+### Requirement: Harness drives hooks through the connector SPI
+
+The harness SHALL drive every scenario through the connector SPI — the
+harness-internal interface `{ mode, capabilities, implementation, alive,
+send(command), shutdown(), kill() }` — and SHALL select the connector from
+the manifest's lifecycle discriminator: `endpoint` → HTTP connect connector,
+`command` → HTTP spawn connector, `cli` → CLI connector. Scenario logic
+SHALL remain in the harness's measurement loops; a connector only translates
+protocol commands to its transport. The two HTTP connectors SHALL preserve
+the pre-SPI worker behaviour exactly. The SPI is a harness extension seam,
+not a public contract: the language-neutral contract for out-of-process
+hooks remains the HTTP protocol, and implementer-supplied connector modules
+are out of scope for this change.
+
+#### Scenario: Connector selection follows the manifest
+
+- **WHEN** the harness is given manifests declaring `endpoint`, `command`,
+  and `cli` respectively
+- **THEN** it drives the same scenario loops through the HTTP connect, HTTP
+  spawn, and CLI connectors respectively, with no scenario logic in any
+  connector
+
+#### Scenario: HTTP hooks are unaffected by the SPI refactor
+
+- **WHEN** an existing spawn- or connect-mode HTTP hook runs under the
+  refactored harness
+- **THEN** its lifecycle, timing, failure mapping, and report output are
+  unchanged from the pre-SPI harness
