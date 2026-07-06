@@ -5,10 +5,10 @@ import hookSchema from '../../benchmark-hook.schema.json'
 
 const validateManifest = new Ajv({ strict: false }).compile(hookSchema)
 
-// Load and validate a hook manifest (benchmark-hook-format). In spawn mode a
-// relative `cwd` (or an absent one) resolves against the manifest file's own
-// directory, so a manifest can ship inside an implementation's repo and
-// reference its hook script relatively; a connect-mode manifest has no cwd.
+// Load and validate a hook manifest (benchmark-hook-format). In spawn and CLI
+// modes a relative `cwd` (or an absent one) resolves against the manifest
+// file's own directory, so a manifest can ship inside an implementation's repo
+// and reference its executable relatively; a connect-mode manifest has no cwd.
 export function readManifest(path) {
   const manifest = JSON.parse(readFileSync(path, 'utf8'))
   if (!validateManifest(manifest)) {

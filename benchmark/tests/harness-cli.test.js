@@ -127,6 +127,53 @@ test('end-to-end smoke: fixture data -> harness + sof-js hook -> verified report
   rmSync(root, { recursive: true, force: true })
 }, 20_000)
 
+test('CLI-mode hook end-to-end through the harness CLI: report written and schema-valid', async () => {
+  const { root, dataRoot } = seedWorkspace()
+  const fakeCliHook = join(import.meta.dir, 'fixtures/hooks/fake-cli.hook.json')
+  // the fake CLI engine emits one row per NDJSON line, so only the plain case
+  const cliSuite = structuredClone(suite)
+  cliSuite.name = 'cli-smoke'
+  cliSuite.cases = [suite.cases[0]]
+  const suitePath = join(root, 'cli-smoke.json')
+  writeFileSync(suitePath, JSON.stringify(cliSuite))
+  writeFileSync(
+    join(root, 'cli-smoke.check.json'),
+    JSON.stringify({
+      dataset: { name: 'smoke-data', version: '1' },
+      syntheaVersion: '3.2.0',
+      sizes: {},
+      assertions: { obs: { s: 2 } },
+    }),
+  )
+  const reportPath = join(root, 'cli-report.json')
+  await runCli([
+    'run',
+    '--hook',
+    fakeCliHook,
+    suitePath,
+    '--size',
+    's',
+    '--data',
+    dataRoot,
+    '--scenario',
+    'end_to_end',
+    '--out',
+    reportPath,
+  ])
+  const report = JSON.parse(readFileSync(reportPath, 'utf8'))
+  expect(validateReport(report)).toBe(true)
+  expect(report.implementation).toEqual({
+    engine: { name: 'fake-cli-engine', version: '0.0.1' },
+    variant: 'cli-test',
+  })
+  expect(report.measurement.scenario).toBe('end_to_end')
+  const obs = report.results['cli-smoke'].cases[0]
+  expect(obs.status).toBe('ok')
+  expect(obs.verified).toBe(true)
+  expect(obs.outputRows).toBe(2)
+  rmSync(root, { recursive: true, force: true })
+}, 20_000)
+
 test('a schema-invalid suite is refused up front instead of producing a schema-violating report', async () => {
   const { root, dataRoot } = seedWorkspace()
   // measurement: 0 violates benchmark.schema.json (minimum: 1); unvalidated it

@@ -446,3 +446,96 @@ test('an unknown scenario is refused up front with the valid names, before any h
   await expect(run({ dataRoot, scenario: 'end-to-end' })).rejects.toThrow(/valid scenarios/i)
   rmSync(dataRoot, { recursive: true, force: true })
 })
+
+// ---- CLI hooks through the scenario loops (connector-spi) ----
+
+function cliManifest(logDir) {
+  return {
+    cli: {
+      run: [
+        'bun',
+        join(import.meta.dir, 'fixtures/hooks/fake-cli.js'),
+        '{dataDir}',
+        '{viewFile}',
+        '--out={outCsv}',
+      ],
+    },
+    env: { FAKE_CLI_LOG: join(logDir, 'spawns.log') },
+    implementation: { engine: { name: 'fake-cli-engine', version: '0.0.1' }, variant: 'cli-test' },
+  }
+}
+
+test('CLI end_to_end: conforming report, one fresh engine process per sample, identity verbatim', async () => {
+  const dataRoot = seedData()
+  const logDir = mkdtempSync(join(tmpdir(), 'clilog-'))
+  const b = structuredClone(suite)
+  b.cases = [{ id: 'obs', title: 'obs', view: { resource: 'Observation' } }]
+  b.iterations = { warmup: 1, measurement: 2 }
+  const report = await run({
+    dataRoot,
+    manifest: cliManifest(logDir),
+    benchmark: b,
+    scenario: 'end_to_end',
+    checkfile,
+  })
+  expect(validateReport(report)).toBe(true)
+  expect(report.measurement.scenario).toBe('end_to_end')
+  expect(report.measurement.phases).toEqual(['load', 'execute', 'extract'])
+  expect(report.measurement.warmup).toBe(0) // e2e ignores warmup for CLI hooks too
+  expect(report.implementation).toEqual({
+    engine: { name: 'fake-cli-engine', version: '0.0.1' },
+    variant: 'cli-test',
+  })
+  const obs = report.results['fake-suite'].cases[0]
+  expect(obs.status).toBe('ok')
+  expect(obs.verified).toBe(true)
+  expect(obs.outputRows).toBe(3) // counted by the harness from the written CSV
+  expect(obs.samplesMs).toHaveLength(2)
+  // dataset-cold by construction: one fresh engine process per measured sample
+  const spawns = readFileSync(join(logDir, 'spawns.log'), 'utf8')
+    .trim()
+    .split('\n')
+    .map((l) => JSON.parse(l))
+  expect(spawns).toHaveLength(2)
+  expect(new Set(spawns.map((s) => s.pid)).size).toBe(2)
+  rmSync(logDir, { recursive: true, force: true })
+  rmSync(dataRoot, { recursive: true, force: true })
+})
+
+test('CLI preloaded_repeated is refused as a run-level failure naming the declared scenarios', async () => {
+  const dataRoot = seedData()
+  const logDir = mkdtempSync(join(tmpdir(), 'clilog-'))
+  await expect(
+    run({ dataRoot, manifest: cliManifest(logDir), scenario: 'preloaded_repeated' }),
+  ).rejects.toThrow(/scenario.*end_to_end/i)
+  rmSync(logDir, { recursive: true, force: true })
+  rmSync(dataRoot, { recursive: true, force: true })
+})
+
+test('CLI non-zero exit is execution_error with a stderr tail; sibling cases stay ok', async () => {
+  const dataRoot = seedData()
+  const logDir = mkdtempSync(join(tmpdir(), 'clilog-'))
+  const b = structuredClone(suite)
+  b.cases = [
+    { id: 'obs', title: 'obs', view: { resource: 'Observation' } },
+    { id: 'boom', title: 'boom', view: { resource: 'BoomMe' } },
+    { id: 'cond', title: 'cond', view: { resource: 'Condition' } },
+  ]
+  const report = await run({
+    dataRoot,
+    manifest: cliManifest(logDir),
+    benchmark: b,
+    scenario: 'end_to_end',
+    checkfile,
+  })
+  const cases = report.results['fake-suite'].cases
+  const boom = cases.find((c) => c.id === 'boom')
+  expect(boom.status).toBe('execution_error')
+  expect(boom.message).toMatch(/exit status 3/)
+  expect(boom.message).toMatch(/engine exploded loudly/)
+  expect(cases.find((c) => c.id === 'obs').status).toBe('ok')
+  expect(cases.find((c) => c.id === 'cond').status).toBe('ok')
+  expect(validateReport(report)).toBe(true)
+  rmSync(logDir, { recursive: true, force: true })
+  rmSync(dataRoot, { recursive: true, force: true })
+})
