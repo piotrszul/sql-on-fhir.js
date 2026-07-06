@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { materialize } from './materialize.js'
 import { makeSyntheaExecutor, loadConfig } from './executors/synthea.js'
+import { pathFrom } from './layout.js'
 
 function loadBenchmarks(dir) {
   return readdirSync(dir)
@@ -51,7 +52,7 @@ export async function run({
 
 if (import.meta.main) {
   const args = process.argv.slice(2)
-  const opts = { dir: new URL('..', import.meta.url).pathname }
+  const opts = { dir: pathFrom(import.meta.url, '..') }
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--size') opts.size = args[++i]
     else if (args[i] === '--group') opts.group = args[++i]

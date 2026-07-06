@@ -2,7 +2,7 @@ import { test, expect } from 'bun:test'
 import { mkdtempSync, rmSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { projectJmh, writeJmhExports, implementationId } from '../src/jmh.js'
+import { projectJmh, writeJmhExports, implementationId } from '../tools/harness/jmh.js'
 
 // A hand-computed fixture. samplesMs = [10, 12, 14, 16] for the ok case.
 //

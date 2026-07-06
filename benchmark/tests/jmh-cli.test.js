@@ -2,7 +2,7 @@ import { test, expect } from 'bun:test'
 import { mkdtempSync, rmSync, writeFileSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { runJmhCli } from '../src/jmh-cli.js'
+import { runJmhCli } from '../tools/harness/jmh-cli.js'
 
 function report(cases) {
   return {

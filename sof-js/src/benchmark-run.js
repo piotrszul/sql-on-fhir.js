@@ -1,20 +1,14 @@
-import { loadResources, timeEvaluate, statsOf } from './benchmark.js'
-import { fhirpath_evaluate } from './path.js'
-import { resourceFile, checkfileFor } from '../../benchmark/tools/layout.js'
-import {
-  readCheckfile,
-  writeCheckfile,
-  buildCheckfile,
-  assertionFor,
-  verifyChecksums,
-} from '../../benchmark/tools/checkfile.js'
-import { writeJmhExports } from './jmh.js'
+// Bless mode — the reference-implementation privilege that remains in sof-js
+// after the measurement loop, report emission and JMH projection moved to the
+// shared harness (benchmark/tools/harness). Minting checkfile assertions stays
+// here because the analytic cross-check needs a FHIRPath evaluator, and the
+// artifact must not depend on an implementation (design.md D5).
 
-// The runner locates a case's data at data/<name>/<version>/<size>/ using the
-// dataset's explicit name + version — it NEVER re-derives a content hash.
-function resolveResourceFile(benchmark, size, dataRoot, resourceType) {
-  return resourceFile(dataRoot, benchmark.dataset.name, benchmark.dataset.version, size, resourceType)
-}
+import { evaluate } from './index.js'
+import { loadResources } from './benchmark.js'
+import { fhirpath_evaluate } from './path.js'
+import { resourceFile, checkfileFor, pathFrom } from '../../benchmark/tools/layout.js'
+import { readCheckfile, writeCheckfile, buildCheckfile } from '../../benchmark/tools/checkfile.js'
 
 // Detect whether a view uses forEach/forEachOrNull or a view-level where.
 function collectSelects(sel, acc) {
@@ -31,7 +25,7 @@ function collectSelects(sel, acc) {
 //   no forEach/where       => the input resource count
 //   forEach over a path    => the total collection-entry count
 //   view-level where       => the filtered count
-// Independent of the timed evaluate() so it is a genuine cross-check of the bless.
+// Independent of the observed evaluate() so it is a genuine cross-check of the bless.
 export function deriveExpectedCount(view, resources) {
   const selects = collectSelects(view.select, [])
   const forEachSel = selects.find((s) => s.forEach || s.forEachOrNull)
@@ -47,152 +41,34 @@ export function deriveExpectedCount(view, resources) {
   return resources.length
 }
 
-// The timed evaluation body shared by both the isolated (runOneCase) and the
-// non-isolated (runCases) paths: resolve the case's data, load it, time the
-// evaluate, and return the raw measurement. It performs NO error handling — the
-// caller decides whether a throw is isolated (runOneCase) or fatal (runCases).
-function timeCase({ benchmark, size, dataRoot, warmup, measurement, c }) {
-  const path = resolveResourceFile(benchmark, size, dataRoot, c.view.resource)
-  const resources = loadResources(path)
-  const { samplesMs, outputRows } = timeEvaluate(c.view, resources, { warmup, measurement })
-  return { c, inputRows: resources.length, outputRows, samplesMs }
-}
-
-// The NON-isolated path (all-or-nothing): time every case, letting any throw
-// propagate and abort the whole run. Used ONLY by blessCheckfile — bless must
-// never write a checkfile from an incomplete run, so a missing/unreadable file is
-// a hard failure here, in deliberate contrast to buildReport's record-and-continue.
-function runCases({ benchmark, size, dataRoot }) {
-  const { warmup, measurement } = benchmark.iterations || { warmup: 1, measurement: 5 }
-  return benchmark.cases.map((c) => timeCase({ benchmark, size, dataRoot, warmup, measurement, c }))
-}
-
-// Run ONE case under a per-case boundary (benchmark-reference-runner: record-and-
-// continue). A load/evaluate failure is captured as a per-case error status plus an
-// advisory message and returned like any other outcome, so the caller's loop never
-// aborts and never voids the other cases' recorded results.
-function runOneCase({ benchmark, size, dataRoot, warmup, measurement, c }) {
-  try {
-    return timeCase({ benchmark, size, dataRoot, warmup, measurement, c })
-  } catch (err) {
-    // A thrown case is recorded, not fatal. loadResources/evaluate raising means the
-    // engine attempted the work and errored (execution_error), distinct from a
-    // timeout (budget) or malformed (unparseable inputs/outputs, surfaced elsewhere).
-    return { c, error: 'execution_error', message: String(err?.message ?? err) }
-  }
-}
-
-// Count the loaded resources of each declared resource type at this size — the
-// dataset resourceCounts the report records for traceability (mirrors the checkfile).
-function observeResourceCounts({ benchmark, size, dataRoot }) {
-  const counts = {}
-  for (const r of benchmark.dataset.resources) {
-    const path = resolveResourceFile(benchmark, size, dataRoot, r)
-    counts[r] = loadResources(path).length
-  }
-  return counts
-}
-
-// resourceCounts is advisory traceability, NOT a case result: it must never be able
-// to abort buildReport after the cases were already processed (the #8 partial-run
-// guarantee). A missing/unreadable declared resource file degrades to {} so the
-// report is still emitted and validates, in contrast to bless's hard-fail path.
-function observeResourceCountsSafe(args) {
-  try {
-    return observeResourceCounts(args)
-  } catch {
-    return {}
-  }
-}
-
-export function buildReport({
-  benchmark,
-  size,
-  dataRoot,
-  checkfilePath,
-  impl,
-  scenario = 'preloaded_repeated',
-  caseFilter,
-}) {
-  const { warmup, measurement } = benchmark.iterations || { warmup: 1, measurement: 5 }
-  const checkfile = checkfilePath ? readCheckfile(checkfilePath) : null
-  // Per-case failure isolation (benchmark-reference-runner): iterate the cases,
-  // running each under its own boundary and recording its outcome, so a failing
-  // case is recorded with its status and the run CONTINUES to the rest. caseFilter
-  // (optional) selects which cases are attempted; a partial run over a subset still
-  // yields a valid report of exactly the completed cases.
-  const selectedCases = caseFilter ? benchmark.cases.filter(caseFilter) : benchmark.cases
-  const cases = selectedCases.map((caseDef) => {
-    const outcome = runOneCase({ benchmark, size, dataRoot, warmup, measurement, c: caseDef })
-    const { c } = outcome
-    if (outcome.error) {
-      // A case that failed to run: record its error status and (advisory) message.
-      return { id: c.id, status: outcome.error, message: outcome.message }
-    }
-    const { inputRows, outputRows, samplesMs } = outcome
-    const expected = assertionFor(checkfile, c.id, size)
-    // Work-verification guard: present+match => ok; present+mismatch => count_mismatch;
-    // absent => ok. A countVariancePermitted case (where/forEach-position reference)
-    // is NOT auto-flagged, honouring the restricted invariance claim.
-    let status = 'ok'
-    if (expected != null && outputRows !== expected && !c.countVariancePermitted) status = 'count_mismatch'
-    return { id: c.id, status, inputRows, outputRows, samplesMs, stats: statsOf(samplesMs) }
-  })
-  // end_to_end times load + execute + extract; preloaded_repeated excludes load.
-  // The sink is csv for BOTH scenarios (benchmark-report-format): timeEvaluate
-  // serializes the evaluated rows to CSV inside the timed region, so extract cost
-  // genuinely reflects sink: 'csv' and an optimizer cannot prune it. The scenario
-  // distinction is PURELY the load boundary, not the sink.
-  const phases = scenario === 'end_to_end' ? ['load', 'execute', 'extract'] : ['execute', 'extract']
-  return {
-    implementation: impl,
-    // Benchmark identity sourced DIRECTLY from the authored suite name/version,
-    // not invented from a pinned tag and not the dataset version.
-    benchmark: { name: benchmark.name, version: benchmark.version },
-    dataset: { name: benchmark.dataset.name, version: benchmark.dataset.version },
-    measurement: {
-      scenario,
-      phases,
-      sink: 'csv',
-      warmup,
-      iterations: measurement,
-    },
-    // The results map is keyed by the stable suite name, consistent with
-    // report.benchmark.name, the case id, and dataset name/version — never the
-    // mutable title.
-    results: {
-      [benchmark.name]: {
-        size,
-        fhirVersion: benchmark.fhirVersion,
-        resourceCounts: observeResourceCountsSafe({ benchmark, size, dataRoot }),
-        cases,
-      },
-    },
-  }
-}
-
 // Bless mode WRITES THE CHECKFILE (counts, checksums, assertions), never the
-// benchmark file. Each blessed assertion is analytically cross-checked before it
-// is committed; a disagreement is a bless-time error. Other sizes are preserved.
+// benchmark file. All-or-nothing by design — a checkfile must never be written
+// from an incomplete run, so any failure here is a hard failure, in deliberate
+// contrast to the harness's per-case record-and-continue. Each blessed assertion
+// is analytically cross-checked before it is committed; other sizes' recorded
+// values are preserved.
 export function blessCheckfile({ benchmark, size, dataRoot, checkfilePath }) {
-  const observed = runCases({ benchmark, size, dataRoot })
+  const dataset = benchmark.dataset
+  if (!dataset.syntheaVersion) {
+    throw new Error(
+      `recipe "${dataset.name}" declares no syntheaVersion; refusing to bless without a pinned generator version`,
+    )
+  }
   const assertions = {}
-  for (const { c, inputRows, outputRows } of observed) {
-    const resources = loadResources(resolveResourceFile(benchmark, size, dataRoot, c.view.resource))
+  for (const c of benchmark.cases) {
+    const resources = loadResources(
+      resourceFile(dataRoot, dataset.name, dataset.version, size, c.view.resource),
+    )
+    const outputRows = evaluate(c.view, resources).length
     const derived = deriveExpectedCount(c.view, resources)
     if (derived !== outputRows) {
       throw new Error(
         `bless cross-check failed for case "${c.id}" size ${size}: observed ${outputRows} rows but analytic derivation is ${derived}`,
       )
     }
-    void inputRows
     assertions[c.id] = { [size]: outputRows }
   }
   const previous = readCheckfile(checkfilePath)
-  const dataset = {
-    ...benchmark.dataset,
-    syntheaVersion: benchmark.dataset.syntheaVersion ?? benchmark.dataset.version,
-  }
   const checkfile = buildCheckfile({ dataRoot, dataset, sizes: [size], assertions, previous })
   writeCheckfile(checkfilePath, checkfile)
   return checkfile
@@ -201,47 +77,24 @@ export function blessCheckfile({ benchmark, size, dataRoot, checkfilePath }) {
 if (import.meta.main) {
   const { readFileSync } = await import('node:fs')
   const args = process.argv.slice(2)
-  const opts = { record: false, size: undefined, strict: false }
+  const opts = { record: false, size: undefined }
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--size') opts.size = args[++i]
     else if (args[i] === '--record') opts.record = true
-    else if (args[i] === '--strict') opts.strict = true
     else if (args[i] === '--data') opts.dataRoot = args[++i]
-    else if (args[i] === '--jmh') opts.jmhDir = args[++i]
     else opts.path = args[i]
+  }
+  if (!opts.record) {
+    console.error('benchmark-run is bless-only: pass --record to write the checkfile.')
+    console.error(
+      'To measure, use the harness: bun run bench:harness run --hook sof-js/hook.json <file> --size <s>',
+    )
+    process.exit(2)
   }
   const benchmark = JSON.parse(readFileSync(opts.path, 'utf8'))
   const size = opts.size || benchmark.dataset.defaultSize
-  const dataRoot = opts.dataRoot || new URL('../../benchmark/data', import.meta.url).pathname
+  const dataRoot = opts.dataRoot || pathFrom(import.meta.url, '../../benchmark/data')
   const checkfilePath = checkfileFor(opts.path)
-  if (opts.record) {
-    blessCheckfile({ benchmark, size, dataRoot, checkfilePath })
-    console.error(`blessed checkfile ${checkfilePath} for size ${size}`)
-  } else {
-    if (opts.strict) {
-      const cf = readCheckfile(checkfilePath)
-      if (cf) {
-        const drift = verifyChecksums({ dataRoot, checkfile: cf, size })
-        if (drift.length) {
-          console.error('checksum drift detected:')
-          drift.forEach((d) => console.error(`  - ${d}`))
-          process.exit(1)
-        }
-      }
-    }
-    const report = buildReport({
-      benchmark,
-      size,
-      dataRoot,
-      checkfilePath,
-      impl: { engine: { name: 'sof-js', version: '2.0.0' } },
-    })
-    console.log(JSON.stringify(report, null, 2))
-    // Optional convenience: after producing the native report (the source of
-    // truth), also emit the JMH projection via the SAME pure function.
-    if (opts.jmhDir) {
-      const written = writeJmhExports(report, opts.jmhDir)
-      console.error(`wrote ${written.length} JMH file(s) to ${opts.jmhDir}`)
-    }
-  }
+  blessCheckfile({ benchmark, size, dataRoot, checkfilePath })
+  console.error(`blessed checkfile ${checkfilePath} for size ${size}`)
 }

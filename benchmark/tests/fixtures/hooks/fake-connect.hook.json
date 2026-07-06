@@ -1,0 +1,7 @@
+{
+  "endpoint": "http://127.0.0.1:8095",
+  "implementation": {
+    "engine": { "name": "fake-engine", "version": "0.0.1" },
+    "variant": "connect"
+  }
+}

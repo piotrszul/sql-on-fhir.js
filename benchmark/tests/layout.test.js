@@ -1,6 +1,12 @@
 import { test, expect } from 'bun:test'
 import * as layout from '../tools/layout.js'
-import { datasetDir, resourceFile, manifestFile, checkfileFor, recipeOf } from '../tools/layout.js'
+import { datasetDir, resourceFile, manifestFile, checkfileFor, recipeOf, pathFrom } from '../tools/layout.js'
+
+test('pathFrom decodes percent-encoded module URLs into real filesystem paths', () => {
+  // A repo checked out under a directory with a space must not yield a %20 path.
+  expect(pathFrom('file:///tmp/My%20Projects/tools/x.js', '../data')).toBe('/tmp/My Projects/data')
+  expect(pathFrom('file:///tmp/plain/tools/x.js', '../data')).toBe('/tmp/plain/data')
+})
 
 test('paths are keyed by explicit name and version, with no content hash', () => {
   const dir = datasetDir('/data', 'synthea-clinical', '1', 's')

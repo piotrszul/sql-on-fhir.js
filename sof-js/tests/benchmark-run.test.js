@@ -2,13 +2,14 @@ import { test, expect } from 'bun:test'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import Ajv from 'ajv'
-import reportSchema from '../../benchmark/benchmark-report.schema.json'
-import { buildReport, blessCheckfile, deriveExpectedCount } from '../src/benchmark-run.js'
+import { blessCheckfile, deriveExpectedCount } from '../src/benchmark-run.js'
 import { datasetDir, checkfileFor } from '../../benchmark/tools/layout.js'
 import { readCheckfile, assertionFor } from '../../benchmark/tools/checkfile.js'
 
-const validateReport = new Ajv({ strict: false }).compile(reportSchema)
+// benchmark-run.js is bless-only: the measurement loop, report emission and JMH
+// projection live in the shared harness (benchmark/tools/harness). What remains
+// here is the reference-implementation privilege — minting checkfile assertions
+// under the analytic cross-check.
 
 const benchmark = {
   name: 'clinical-flat',
@@ -76,166 +77,7 @@ function checkfilePath(dataRoot) {
   return join(dataRoot, 'clinical-flat.check.json')
 }
 
-// ---- §6/§7: data resolution by identity + checkfile-driven guard ----
-
-test('runner resolves data/<name>/<version>/<size>/ from identity, no hash', () => {
-  const dataRoot = seedData()
-  // the file lives at synthea-clinical/1/s — the plain identity path
-  expect(existsSync(join(dataRoot, 'synthea-clinical', '1', 's', 'Observation.ndjson'))).toBe(true)
-  const report = buildReport({
-    benchmark,
-    size: 's',
-    dataRoot,
-    impl: { engine: { name: 'sof-js', version: '2.0.0' } },
-  })
-  expect(report.results['clinical-flat'].cases[0].outputRows).toBe(2)
-  rmSync(dataRoot, { recursive: true, force: true })
-})
-
-test('runner reads expected counts from the checkfile (matching => ok)', () => {
-  const dataRoot = seedData()
-  const cf = {
-    dataset: { name: 'synthea-clinical', version: '1' },
-    syntheaVersion: '3.2.0',
-    sizes: {},
-    assertions: { obs: { s: 2 }, 'obs-components': { s: 3 } },
-  }
-  writeFileSync(checkfilePath(dataRoot), JSON.stringify(cf))
-  const report = buildReport({
-    benchmark,
-    size: 's',
-    dataRoot,
-    checkfilePath: checkfilePath(dataRoot),
-    impl: { engine: { name: 'sof-js', version: '2.0.0' } },
-  })
-  const cases = report.results['clinical-flat'].cases
-  expect(cases.find((c) => c.id === 'obs').status).toBe('ok')
-  expect(cases.find((c) => c.id === 'obs-components').status).toBe('ok')
-  rmSync(dataRoot, { recursive: true, force: true })
-})
-
-test('runner flags count_mismatch against a present checkfile assertion', () => {
-  const dataRoot = seedData()
-  const cf = {
-    dataset: { name: 'synthea-clinical', version: '1' },
-    syntheaVersion: '3.2.0',
-    sizes: {},
-    assertions: { obs: { s: 99 } },
-  }
-  writeFileSync(checkfilePath(dataRoot), JSON.stringify(cf))
-  const report = buildReport({
-    benchmark,
-    size: 's',
-    dataRoot,
-    checkfilePath: checkfilePath(dataRoot),
-    impl: { engine: { name: 'sof-js', version: '2.0.0' } },
-  })
-  expect(report.results['clinical-flat'].cases.find((c) => c.id === 'obs').status).toBe('count_mismatch')
-  rmSync(dataRoot, { recursive: true, force: true })
-})
-
-test('a countVariancePermitted case is NOT auto-flagged count_mismatch on divergence', () => {
-  const dataRoot = seedData()
-  const b = structuredClone(benchmark)
-  b.cases[0].countVariancePermitted = true
-  const cf = {
-    dataset: { name: 'synthea-clinical', version: '1' },
-    syntheaVersion: '3.2.0',
-    sizes: {},
-    assertions: { obs: { s: 99 } },
-  }
-  writeFileSync(checkfilePath(dataRoot), JSON.stringify(cf))
-  const report = buildReport({
-    benchmark: b,
-    size: 's',
-    dataRoot,
-    checkfilePath: checkfilePath(dataRoot),
-    impl: { engine: { name: 'sof-js', version: '2.0.0' } },
-  })
-  expect(report.results['clinical-flat'].cases.find((c) => c.id === 'obs').status).toBe('ok')
-  rmSync(dataRoot, { recursive: true, force: true })
-})
-
-test('absent assertion => ok', () => {
-  const dataRoot = seedData()
-  const report = buildReport({
-    benchmark,
-    size: 's',
-    dataRoot,
-    impl: { engine: { name: 'sof-js', version: '2.0.0' } },
-  })
-  expect(report.results['clinical-flat'].cases[0].status).toBe('ok')
-  rmSync(dataRoot, { recursive: true, force: true })
-})
-
-// ---- §7: report shape (implementation, scenario, stats, provenance, inputRows, id) ----
-
-test('buildReport emits a schema-valid report with structured implementation, scenario, stats and provenance', () => {
-  const dataRoot = seedData()
-  const report = buildReport({
-    benchmark,
-    size: 's',
-    dataRoot,
-    impl: { engine: { name: 'sof-js', version: '2.0.0' } },
-  })
-  expect(validateReport(report)).toBe(true)
-  expect(report.implementation.engine).toEqual({ name: 'sof-js', version: '2.0.0' })
-  // benchmark identity sourced DIRECTLY from the authored suite name/version,
-  // not invented from a pinned tag and not the dataset version (which is '1').
-  expect(report.benchmark).toEqual({ name: 'clinical-flat', version: '2' })
-  expect(report.dataset).toEqual({ name: 'synthea-clinical', version: '1' })
-  expect(['end_to_end', 'preloaded_repeated']).toContain(report.measurement.scenario)
-  const res = report.results['clinical-flat']
-  expect(res.resourceCounts.Observation).toBe(2)
-  const c0 = res.cases[0]
-  expect(c0.id).toBe('obs')
-  expect(c0.inputRows).toBe(2) // number of Observation resources loaded
-  expect(c0.stats).toHaveProperty('mean')
-  expect(c0.stats).toHaveProperty('median')
-  expect(c0.stats).not.toHaveProperty('p50')
-  expect(c0.stats).toHaveProperty('stddev')
-  rmSync(dataRoot, { recursive: true, force: true })
-})
-
-test('the results map is keyed by the stable suite name, not the free-text title', () => {
-  const dataRoot = seedData()
-  const report = buildReport({
-    benchmark,
-    size: 's',
-    dataRoot,
-    impl: { engine: { name: 'sof-js', version: '2.0.0' } },
-  })
-  expect(report.results).toHaveProperty('clinical-flat') // suite name
-  expect(report.results).not.toHaveProperty('Clinical flat (human label)') // title
-  rmSync(dataRoot, { recursive: true, force: true })
-})
-
-test('both scenarios default to a csv sink', () => {
-  const dataRoot = seedData()
-  const e2e = buildReport({
-    benchmark,
-    size: 's',
-    dataRoot,
-    scenario: 'end_to_end',
-    impl: { engine: { name: 'sof-js', version: '2.0.0' } },
-  })
-  const pre = buildReport({
-    benchmark,
-    size: 's',
-    dataRoot,
-    scenario: 'preloaded_repeated',
-    impl: { engine: { name: 'sof-js', version: '2.0.0' } },
-  })
-  expect(e2e.measurement.sink).toBe('csv')
-  expect(pre.measurement.sink).toBe('csv')
-  // The scenario distinction is the load boundary, not the sink: end_to_end
-  // includes load; preloaded_repeated excludes it. Both extract to csv.
-  expect(e2e.measurement.phases).toEqual(['load', 'execute', 'extract'])
-  expect(pre.measurement.phases).toEqual(['execute', 'extract'])
-  rmSync(dataRoot, { recursive: true, force: true })
-})
-
-// ---- §5.1: analytic derivation ----
+// ---- analytic derivation ----
 
 test('deriveExpectedCount: plain projection => input resource count', () => {
   const dataRoot = seedData()
@@ -257,7 +99,7 @@ test('deriveExpectedCount: forEach over a collection => total collection-entry c
   rmSync(dataRoot, { recursive: true, force: true })
 })
 
-// ---- §5/§6: bless writes the checkfile, cross-checked, other sizes preserved ----
+// ---- bless writes the checkfile, cross-checked, other sizes preserved ----
 
 test('blessCheckfile writes the checkfile with counts, checksums and assertions; not the benchmark file', () => {
   const dataRoot = seedData()
@@ -277,125 +119,33 @@ test('checkfileFor derives the checkfile path from the benchmark file path', () 
   expect(checkfileFor('/bench/clinical-flat.json')).toBe('/bench/clinical-flat.check.json')
 })
 
-// ---- Wave 2 (#8): per-case failure isolation — record-and-continue ----
-
-// A benchmark whose FIRST case reads a resource type that was never materialized
-// (so loading its data throws) while the SECOND case reads the seeded Observation
-// data. Record-and-continue means the failing case is recorded with an error
-// status and the succeeding case still completes and is recorded.
-const mixedBenchmark = {
-  ...benchmark,
-  cases: [
-    {
-      id: 'missing-data',
-      title: 'reads a resource with no materialized file',
-      view: {
-        resource: 'Patient',
-        select: [{ column: [{ name: 'id', path: 'getResourceKey()', type: 'string' }] }],
-      },
-    },
-    {
-      id: 'obs',
-      title: 'obs',
-      view: {
-        resource: 'Observation',
-        select: [{ column: [{ name: 'id', path: 'getResourceKey()', type: 'string' }] }],
-      },
-    },
-  ],
-}
-
-test('a failing case is recorded with an error status and the run CONTINUES for the others', () => {
-  const dataRoot = seedData() // seeds Observation.ndjson but NOT Patient.ndjson
-  const report = buildReport({
-    benchmark: mixedBenchmark,
-    size: 's',
-    dataRoot,
-    impl: { engine: { name: 'sof-js', version: '2.0.0' } },
-  })
-  const cases = report.results['clinical-flat'].cases
-  // both cases are recorded — the failure did not abort the run or drop the survivor
-  expect(cases).toHaveLength(2)
-  const failed = cases.find((c) => c.id === 'missing-data')
-  const ok = cases.find((c) => c.id === 'obs')
-  expect(failed.status).toBe('execution_error')
-  expect(typeof failed.message).toBe('string')
-  expect(failed.message.length).toBeGreaterThan(0)
-  // the succeeding case is fully recorded with its real result
-  expect(ok.status).toBe('ok')
-  expect(ok.outputRows).toBe(2)
-  rmSync(dataRoot, { recursive: true, force: true })
-})
-
-test('a report from a run with a failing case still validates against the schema', () => {
-  const dataRoot = seedData()
-  const report = buildReport({
-    benchmark: mixedBenchmark,
-    size: 's',
-    dataRoot,
-    impl: { engine: { name: 'sof-js', version: '2.0.0' } },
-  })
-  expect(validateReport(report)).toBe(true)
-  rmSync(dataRoot, { recursive: true, force: true })
-})
-
-test('a partial run (only some cases completed) emits a schema-valid report of just those cases', () => {
-  const dataRoot = seedData()
-  // Simulate a run interrupted after only the first case completed by injecting a
-  // caseFilter that limits which cases are attempted; the emitted report contains
-  // ONLY that case, each with a status, and still validates.
-  const report = buildReport({
-    benchmark: mixedBenchmark,
-    size: 's',
-    dataRoot,
-    caseFilter: (c) => c.id === 'obs',
-    impl: { engine: { name: 'sof-js', version: '2.0.0' } },
-  })
-  const cases = report.results['clinical-flat'].cases
-  expect(cases).toHaveLength(1)
-  expect(cases[0].id).toBe('obs')
-  expect(cases[0]).toHaveProperty('status')
-  expect(validateReport(report)).toBe(true)
-  rmSync(dataRoot, { recursive: true, force: true })
-})
-
-// A benchmark that DECLARES a dataset resource type whose materialized file is
-// absent. observeResourceCounts iterates dataset.resources; a missing file there
-// would throw AFTER all cases were processed — voiding the completed cases array
-// and breaking the partial-run-valid guarantee (#8). It must be failure-isolated.
-const missingDatasetResourceBenchmark = {
-  ...benchmark,
-  dataset: { ...benchmark.dataset, resources: ['Observation', 'Patient'] },
-}
-
-test('a missing dataset resource file does not void the completed cases (resourceCounts is isolated)', () => {
-  const dataRoot = seedData() // seeds Observation.ndjson but NOT Patient.ndjson
-  const report = buildReport({
-    benchmark: missingDatasetResourceBenchmark,
-    size: 's',
-    dataRoot,
-    impl: { engine: { name: 'sof-js', version: '2.0.0' } },
-  })
-  const res = report.results['clinical-flat']
-  // the cases (which loaded Observation fine) are intact despite the missing Patient file
-  expect(res.cases).toHaveLength(2)
-  expect(res.cases.find((c) => c.id === 'obs').status).toBe('ok')
-  // resourceCounts degrades to an empty object rather than aborting the whole report
-  expect(res.resourceCounts).toEqual({})
-  // and the report still validates against the schema
-  expect(validateReport(report)).toBe(true)
-  rmSync(dataRoot, { recursive: true, force: true })
-})
-
-// The intentional contrast to buildReport's record-and-continue isolation:
-// blessCheckfile (via the non-isolated runCases path) is all-or-nothing. A missing
-// data file at bless time is a HARD failure, not a per-case recorded error — bless
-// must never write a checkfile from an incomplete run.
+// bless is all-or-nothing, in deliberate contrast to the harness's per-case
+// record-and-continue: a checkfile must never be written from an incomplete run.
 test('blessCheckfile HARD-fails when a case resource file is absent (no isolation)', () => {
   const dataRoot = seedData() // seeds Observation.ndjson but NOT Patient.ndjson
-  const cfPath = checkfilePath(dataRoot)
+  const b = structuredClone(benchmark)
+  b.cases.push({
+    id: 'missing-data',
+    title: 'reads a resource with no materialized file',
+    view: {
+      resource: 'Patient',
+      select: [{ column: [{ name: 'id', path: 'getResourceKey()', type: 'string' }] }],
+    },
+  })
   expect(() =>
-    blessCheckfile({ benchmark: mixedBenchmark, size: 's', dataRoot, checkfilePath: cfPath }),
+    blessCheckfile({ benchmark: b, size: 's', dataRoot, checkfilePath: checkfilePath(dataRoot) }),
   ).toThrow()
+  rmSync(dataRoot, { recursive: true, force: true })
+})
+
+// A recipe without a generator version must hard-fail rather than silently
+// recording the dataset version as the generator version (the removed fallback).
+test('blessCheckfile HARD-fails when the recipe omits syntheaVersion', () => {
+  const dataRoot = seedData()
+  const b = structuredClone(benchmark)
+  delete b.dataset.syntheaVersion
+  expect(() =>
+    blessCheckfile({ benchmark: b, size: 's', dataRoot, checkfilePath: checkfilePath(dataRoot) }),
+  ).toThrow(/syntheaVersion/)
   rmSync(dataRoot, { recursive: true, force: true })
 })

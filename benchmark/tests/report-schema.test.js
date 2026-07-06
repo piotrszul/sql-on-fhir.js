@@ -90,16 +90,12 @@ test('stats omitting median (a required field) is rejected', () => {
   expect(validate(bad)).toBe(false)
 })
 
-test('stats is exactly {mean, stddev, min, max, median}; extra keys are rejected', () => {
-  const r = structuredClone(goodReport)
-  const c = r.results['clinical-flat'].cases[0]
-  c.stats = { mean: 1.25, stddev: 0.05, min: 1.2, max: 1.3, median: 1.25 }
-  expect(c.stats).not.toHaveProperty('p95')
-  expect(c.stats).not.toHaveProperty('ci95')
-  expect(validate(r)).toBe(true)
-})
+// ---- benchmark-harness change: stats opens for additive extension ----
+// The five fields stay REQUIRED; extra fields are PERMITTED (no consumer may
+// rely on them). Forcing recomputation from samplesMs is achieved by keeping
+// samplesMs required, not by banning keys.
 
-test('stats carrying a p95 is rejected (not part of the contract)', () => {
+test('stats carrying a p95 beyond the required five is accepted (open for extension)', () => {
   const r = structuredClone(goodReport)
   r.results['clinical-flat'].cases[0].stats = {
     mean: 1.25,
@@ -109,10 +105,10 @@ test('stats carrying a p95 is rejected (not part of the contract)', () => {
     median: 1.25,
     p95: 1.3,
   }
-  expect(validate(r)).toBe(false)
+  expect(validate(r)).toBe(true)
 })
 
-test('stats carrying a ci95 is rejected (not part of the contract)', () => {
+test('stats carrying a ci95 beyond the required five is accepted (open for extension)', () => {
   const r = structuredClone(goodReport)
   r.results['clinical-flat'].cases[0].stats = {
     mean: 1.25,
@@ -122,7 +118,33 @@ test('stats carrying a ci95 is rejected (not part of the contract)', () => {
     median: 1.25,
     ci95: { lo: 1.2, hi: 1.3 },
   }
-  expect(validate(r)).toBe(false)
+  expect(validate(r)).toBe(true)
+})
+
+// ---- benchmark-harness change: verified distinguishes verified from unverified ok ----
+
+test('a case with verified: true is accepted', () => {
+  const r = structuredClone(goodReport)
+  r.results['clinical-flat'].cases[0].verified = true
+  expect(validate(r)).toBe(true)
+})
+
+test('a case with verified: false is accepted', () => {
+  const r = structuredClone(goodReport)
+  r.results['clinical-flat'].cases[0].verified = false
+  expect(validate(r)).toBe(true)
+})
+
+test('a case without verified remains valid (the field is optional and additive)', () => {
+  const r = structuredClone(goodReport)
+  expect(r.results['clinical-flat'].cases[0]).not.toHaveProperty('verified')
+  expect(validate(r)).toBe(true)
+})
+
+test('a non-boolean verified is rejected', () => {
+  const bad = structuredClone(goodReport)
+  bad.results['clinical-flat'].cases[0].verified = 'yes'
+  expect(validate(bad)).toBe(false)
 })
 
 test('a low sample count is NOT schema-rejected (>= 7 is advisory)', () => {

@@ -1,0 +1,50 @@
+{
+  "$id": "https://sql-on-fhir.org/ig/benchmark-hook",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SQL on FHIR benchmark hook manifest schema",
+  "description": "Declarative manifest describing a benchmark hook: EXACTLY ONE lifecycle mode — `command` (spawn mode: the harness starts the hook service with an assigned HOOK_PORT and owns termination) or `endpoint` (connect mode: an operator-managed hook service the harness only connects to) — plus the STATIC identity of the implementation under test. The harness copies `implementation` into the emitted report verbatim. The hook protocol itself (JSON over local HTTP) is specified in the benchmark-hook-format capability.",
+  "type": "object",
+  "required": ["implementation"],
+  "oneOf": [{ "required": ["command"] }, { "required": ["endpoint"] }],
+  "definitions": {
+    "nameVersion": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": { "name": { "type": "string" }, "version": { "type": "string" } },
+      "additionalProperties": false
+    }
+  },
+  "properties": {
+    "command": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1,
+      "description": "Spawn mode: argv array to start the hook service; the first element is the executable. Resolved relative to `cwd`. The harness passes the port to listen on as the HOOK_PORT environment variable."
+    },
+    "endpoint": {
+      "type": "string",
+      "description": "Connect mode: localhost base URL of an operator-managed hook service (e.g. http://127.0.0.1:8095). The harness only connects; it never sends shutdown and never terminates the service."
+    },
+    "cwd": {
+      "type": "string",
+      "description": "Spawn mode: working directory for the hook service. A relative path is resolved against the manifest file's own directory (the default)."
+    },
+    "env": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "Spawn mode: extra environment variables for the hook process, merged over the harness's environment."
+    },
+    "implementation": {
+      "type": "object",
+      "description": "Static identity of the implementation under test, in the report format's structured shape; copied verbatim into the report's `implementation`.",
+      "required": ["engine"],
+      "properties": {
+        "engine": { "$ref": "#/definitions/nameVersion" },
+        "binding": { "$ref": "#/definitions/nameVersion" },
+        "variant": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

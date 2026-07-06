@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import Ajv from 'ajv'
+import { pathFrom } from './layout.js'
 
 const schema = JSON.parse(readFileSync(new URL('../benchmark.schema.json', import.meta.url), 'utf8'))
 const validate = new Ajv({ strict: false }).compile(schema)
@@ -114,4 +115,4 @@ export async function main(dir = '.') {
   return 0
 }
 
-if (import.meta.main) process.exit(await main(new URL('..', import.meta.url).pathname))
+if (import.meta.main) process.exit(await main(pathFrom(import.meta.url, '..')))

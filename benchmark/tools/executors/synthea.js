@@ -2,12 +2,13 @@ import { existsSync, readFileSync, renameSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { resolveSyntheaJar, defaultCacheDir } from './synthea-releases.js'
+import { pathFrom } from '../layout.js'
 
 // tools/executors.config.json is now an OPTIONAL OVERRIDE, not a prerequisite: when
 // present it supplies a custom jar path and/or java binary that WIN over auto-fetch;
 // when absent (null) the materializer auto-fetches the pinned Synthea jar.
 export function loadConfig() {
-  const path = new URL('../executors.config.json', import.meta.url).pathname
+  const path = pathFrom(import.meta.url, '../executors.config.json')
   if (!existsSync(path)) return null
   try {
     return JSON.parse(readFileSync(path, 'utf8'))
