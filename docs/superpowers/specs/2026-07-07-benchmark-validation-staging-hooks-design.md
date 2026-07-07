@@ -49,9 +49,11 @@ session/context** on its own feature branch, and merged into
 3. `validate-pathling-server-hook`
 
 This bootstrap change creates the three change directories with
-proposal-level basics, this design doc, and the `staging-hooks/` scaffolding
-README, so any fresh session can pick up a change with
-`/opsx:continue <change>` (or `/opsx:explore <change>`) and nothing else.
+proposal-level basics, this design doc, the `staging-hooks/` scaffolding
+README, and the repo-local `validation-cycle` skill
+(`.claude/skills/validation-cycle/SKILL.md`) that encodes the per-cycle
+procedure, so any fresh session picks up a change with
+`/validation-cycle <change>` and nothing else.
 
 **Ordering rule.** Exploration of any change is free at any time.
 *Implementation* of change N+1 branches off `staging/benchmark` only after
