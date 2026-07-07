@@ -1,7 +1,7 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { tmpdir } from 'node:os'
 import { startConnector, SetupError, WorkerTimeout } from './worker.js'
+import { makeEngineTempDir } from './tempdir.js'
 import { datasetDir } from '../layout.js'
 import { assertionFor, countLines } from '../checkfile.js'
 import { countCsvRows } from './csv-count.js'
@@ -75,7 +75,9 @@ export async function runSuite({
   const dataDir = datasetDir(dataRoot, benchmark.dataset.name, benchmark.dataset.version, size)
   const { warmup = 1, measurement = 5 } = benchmark.iterations || {}
   const cases = caseFilter ? benchmark.cases.filter(caseFilter) : benchmark.cases
-  const workDir = mkdtempSync(join(tmpdir(), 'sof-harness-'))
+  // Canonical, symlink-free: `outCsv` is built under this dir and handed to
+  // engines by path (see tempdir.js).
+  const workDir = makeEngineTempDir('sof-harness-')
 
   const resources = benchmark.dataset.resources
   const resourceCounts = observeResourceCounts(dataDir, resources)

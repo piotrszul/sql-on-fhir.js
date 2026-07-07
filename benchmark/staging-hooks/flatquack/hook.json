@@ -1,0 +1,26 @@
+{
+  "cli": {
+    "run": [
+      "bun",
+      "run",
+      "/Users/szu004/third/flatquack/.worktrees/master-fix/src/cli.js",
+      "--mode",
+      "run",
+      "--strict",
+      "--template",
+      "flatquack-hook.sql",
+      "--view-path",
+      "/",
+      "--view-pattern",
+      "..{viewFile}",
+      "--param",
+      "fq_input_dir={dataDir}",
+      "--param",
+      "fq_out_csv={outCsv}"
+    ]
+  },
+  "implementation": {
+    "engine": { "name": "flatquack", "version": "0.2.1" },
+    "variant": "cli-master-fix"
+  }
+}
