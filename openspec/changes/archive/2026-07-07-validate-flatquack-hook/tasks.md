@@ -7,14 +7,18 @@
       reading `'{{fq_input_dir}}/{{fq_vd_resource}}.ndjson'` and writing
       `TO '{{fq_out_csv}}'`
 - [x] 1.2 Create `benchmark/staging-hooks/flatquack/hook.json` — CLI-mode
-      manifest: `bun run <abs path>/src/cli.js --mode run --strict`, the
-      `..{viewFile}` view selection, `--param` bridging for `{dataDir}` /
-      `{outCsv}`, and `implementation` identity (engine flatquack 0.2.1,
-      variant naming the master-fix checkout)
+      manifest running the `flatquack-hook.js` adapter, `{dataDir}` /
+      `{viewFile}` / `{outCsv}` passed as argv, the machine-local flatquack
+      path in `env.FLATQUACK_CLI`, and `implementation` identity (engine
+      flatquack 0.2.1, variant `cli-master-fix`)
+- [x] 1.2b Create `benchmark/staging-hooks/flatquack/flatquack-hook.js` — thin
+      adapter: isolate `{viewFile}` in a fresh temp dir for flatquack's
+      directory-glob CLI, and key success off the written CSV (masks
+      aehrc/flatquack#42, turns #43's silent failure honest)
 - [x] 1.3 Validate `hook.json` against `benchmark-hook.schema.json` and smoke
       it with `bench:harness exec` (`capabilities`, then one `run`)
-- [x] 1.4 Note the machine-local absolute path (edit-per-machine) in the hook
-      directory's README stub or FINDINGS.md preamble
+- [x] 1.4 Note the machine-local `env.FLATQUACK_CLI` (edit-per-machine) in the
+      hook directory's README
 
 ## 2. Harness validation pass
 
@@ -22,11 +26,12 @@
       the checkfile hashes (re-materialize only if missing/stale)
 - [x] 2.2 Full harness run, size `s`, `end_to_end`, report written; checkfile
       row counts verified for both cases
-- [ ] 2.3 Full harness run, size `m`, `end_to_end`, report written; checkfile
-      row counts verified for both cases — **BLOCKED** by
-      [aehrc/flatquack#42](https://github.com/aehrc/flatquack/issues/42)
-      (every size-`m` sample SIGTRAPs at teardown). Re-run after the upstream
-      fix; see FINDINGS.md entry 3 and the pass record.
+- [x] 2.3 Full harness run, size `m`, `end_to_end`, report written; checkfile
+      row counts verified for both cases (48908 / 39479, stable across 3
+      runs). Unblocked by `flatquack-hook.js` keying success off the written
+      CSV rather than flatquack's crashing exit code
+      ([aehrc/flatquack#42](https://github.com/aehrc/flatquack/issues/42));
+      timing not yet trustworthy — see FINDINGS.md entry 3.
 - [x] 2.4 Inspect the emitted report against
       `benchmark-report.schema.json` (identity fields copied verbatim,
       failure statuses sensible given flatquack#42 flakes)

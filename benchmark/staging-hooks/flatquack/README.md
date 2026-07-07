@@ -1,27 +1,28 @@
 # flatquack staging hook
 
 CLI-mode benchmark hook for [flatquack](https://github.com/aehrc/flatquack)
-(Bun + DuckDB). Zero code: `hook.json` (argv template) plus
-`flatquack-hook.sql`, a declarative SQL template that bridges flatquack's
-input/output shape to the hook contract (`--param fq_input_dir={dataDir}`,
-`--param fq_out_csv={outCsv}`).
+(Bun + DuckDB). The pieces:
+
+- `hook.json` — CLI-mode manifest. Runs the adapter and carries the one
+  machine-local knob as an env var.
+- `flatquack-hook.js` — a thin adapter (the CLI-hook analog of
+  `sof-js/hook.js`): isolates the harness's single `{viewFile}` in a fresh
+  temp dir so flatquack's directory-glob CLI selects exactly it, then reports
+  success by whether the output CSV was written (see FINDINGS.md entries 2–4).
+- `flatquack-hook.sql` — declarative SQL template bridging flatquack's
+  input/output shape to the harness (`--param fq_input_dir` / `fq_out_csv`).
 
 **Machine-local path.** Staging hooks are temporary, machine-local
-scaffolding (see `../README.md`). The `cli.run` argv references a flatquack
-checkout by absolute path — edit that element to point at yours (branch with
-current fixes: `staging/master-fix`; run `bun install` in the checkout). The
-argv template deliberately has no environment expansion, and the manifest's
-`cwd` must stay defaulted to this directory so `--template flatquack-hook.sql`
-resolves.
+scaffolding (see `../README.md`). The single machine-specific value is
+`env.FLATQUACK_CLI` in `hook.json` — the absolute path to your flatquack
+checkout's `src/cli.js`. Edit that one line to point at yours (branch with
+current fixes: `staging/master-fix`; run `bun install` in the checkout).
+Everything else is portable: the manifest's `cwd` defaults to this directory,
+so the adapter and SQL template resolve relatively.
 
-Run the pass from the repo root:
+Run the pass from the repo root (CLI hooks declare only `end_to_end`):
 
 ```
 bun run bench:harness run --hook benchmark/staging-hooks/flatquack/hook.json \
-    benchmark/clinical-flat.json --size s --out report-s.json
+    benchmark/clinical-flat.json --size s --scenario end_to_end --out report-s.json
 ```
-
-View selection uses `--view-path / --view-pattern "..{viewFile}"` — the
-`..`-prefixed literal pattern is how a directory-globbing CLI addresses the
-single view file the harness materializes; see FINDINGS.md for why and for
-the deferred `{viewDir}` alternative.

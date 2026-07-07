@@ -1,23 +1,9 @@
 {
   "cli": {
-    "run": [
-      "bun",
-      "run",
-      "/Users/szu004/third/flatquack/.worktrees/master-fix/src/cli.js",
-      "--mode",
-      "run",
-      "--strict",
-      "--template",
-      "flatquack-hook.sql",
-      "--view-path",
-      "/",
-      "--view-pattern",
-      "..{viewFile}",
-      "--param",
-      "fq_input_dir={dataDir}",
-      "--param",
-      "fq_out_csv={outCsv}"
-    ]
+    "run": ["bun", "run", "flatquack-hook.js", "{dataDir}", "{viewFile}", "{outCsv}"]
+  },
+  "env": {
+    "FLATQUACK_CLI": "/Users/szu004/third/flatquack/.worktrees/master-fix/src/cli.js"
   },
   "implementation": {
     "engine": { "name": "flatquack", "version": "0.2.1" },

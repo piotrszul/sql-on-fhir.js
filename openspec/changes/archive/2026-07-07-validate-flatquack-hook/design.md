@@ -49,14 +49,15 @@ exploration:
 
 ## Decisions
 
-1. **Single-view selection via the `..{viewFile}` idiom** (user decision).
-   `--view-path /` + `--view-pattern "..{viewFile}"` expresses "run exactly
-   this file" inside today's contract. Alternatives considered: a `{viewDir}`
-   contract placeholder backed by a fresh per-run directory (deferred — one
-   data point doesn't justify permanent contract surface; reconsider at
-   teardown), and a flatquack single-file affordance (upstream's call; not
-   blocking). The idiom's fragility (undocumented `..` tolerance in Bun's
-   glob) is recorded as a finding.
+1. **Single-view selection via a thin adapter** (`flatquack-hook.js`).
+   Superseded an initial `..{viewFile}` glob idiom (which leaned on
+   undocumented Bun-glob behaviour) after review: the adapter copies the one
+   `{viewFile}` into a fresh temp dir and runs flatquack's real, documented
+   `--view-path <dir> --view-pattern '*.json'`. Same category as
+   `sof-js/hook.js` — a per-engine shim, not a contract change — and the shape
+   flatquack's hook will keep after migration. The `{viewDir}` contract
+   placeholder remains open for the exercise teardown but is unnecessary given
+   the adapter.
 2. **Shape bridging via a hook-local SQL template**, `flatquack-hook.sql`,
    modeled on flatquack's `templates/csv.sql` but reading
    `'{{fq_input_dir}}/{{fq_vd_resource}}.ndjson'` (the materializer's exact
@@ -86,17 +87,16 @@ exploration:
 
 ## Risks / Trade-offs
 
-- [Segfault flake #42 fails ~25% of samples] → runs may report failed samples
-  through no fault of the contract; acceptable for validation (documented in
-  FINDINGS), re-run once upstream fixes land. If the harness cannot complete
-  a pass at all, that observation itself is a finding about harness
-  failure-isolation behaviour.
-- [`..{viewFile}` relies on undocumented Bun glob behaviour] → could break on
-  a Bun upgrade; recorded in FINDINGS with the `{viewDir}` reconsideration
-  note as the durable alternative.
-- [Absolute tool path makes the checked-in hook non-portable] → explicit
-  scaffolding contract already declares staging hooks machine-local and
-  temporary; noted in the hook README.
+- [Segfault #42 killed 100% of raw size-`m` samples] → `flatquack-hook.js`
+  keys success off the written CSV and ignores flatquack's exit code, so both
+  sizes now pass with verified counts; but crashed-sample *timing* carries
+  Bun's panic overhead, so numbers aren't trustworthy until #42 is fixed
+  (documented in FINDINGS). The harness's own row count guards against a
+  masked truncated write.
+- [Machine-local tool path makes the checked-in hook non-portable] → reduced
+  to a single `env.FLATQUACK_CLI` value in `hook.json`; explicit scaffolding
+  contract already declares staging hooks machine-local and temporary; noted
+  in the hook README.
 - [Exit-0-on-failure #43 could mask a broken run as success] → the harness
   independently counts rows from the produced CSV against the checkfile, so a
   silent failure surfaces as `count_mismatch`/missing-file, not as a false
@@ -105,9 +105,10 @@ exploration:
 ## Open Questions
 
 - Does the segfault rate under harness load allow a complete `s`+`m` pass?
-  (Empirical; answered during apply.) **Answered:** `s` passes (with
-  retries); `m` is blocked — every sample SIGTRAPs at that data size. See
-  FINDINGS.md entry 3; re-run after aehrc/flatquack#42.
+  (Empirical; answered during apply.) **Answered:** with `flatquack-hook.js`
+  keying success off the written CSV, both `s` and `m` pass with
+  checkfile-exact counts (6406/4366, 48908/39479). Timing is not yet
+  trustworthy — see FINDINGS.md entry 3; re-time after aehrc/flatquack#42.
 - Report `implementation` identity: `engine.name: flatquack`,
   `engine.version: 0.2.1` + `variant` naming the master-fix checkout — exact
   variant string settled during apply. **Answered:** `cli-master-fix`.
