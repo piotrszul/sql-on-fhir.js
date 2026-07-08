@@ -50,6 +50,19 @@ dir for the same reason.
 tool needs *no* adapter at all. Not needed for flatquack given the adapter,
 but worth deciding once all three targets are in.
 
+**Adapter carries finding 1's own lesson:** the copy target
+(`realpathSync(mkdtempSync(...))` in `flatquack-hook.js`) is canonicalized for
+exactly the reason finding 1 canonicalizes `{viewFile}` — `tmpdir()` is a
+`/var -> /private/var` symlink on macOS and flatquack glob-walks
+`--view-path`. Under node's symlink-following glob an uncanonicalized dir
+happens to work, but we don't lean on that. **Coverage gap:** unlike the
+harness `{viewFile}` fix (which has a symlinked-`TMPDIR` regression test in
+`tests/harness-cli-connector.test.js`), the adapter's canonicalization is
+untested — the adapter lives outside the contract and a test would need a
+flatquack install on the PATH. The guarantee is currently held by inspection,
+not by a test; close this if/when the flatquack hook migrates to its own repo
+with the tool available.
+
 ## 3. Intermittent Bun/duckdb segfault at process exit — **tool defect, FIXED upstream** ([aehrc/flatquack#42](https://github.com/aehrc/flatquack/issues/42))
 
 flatquack crashed *after* the CSV was fully and correctly written (Bun panic

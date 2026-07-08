@@ -20,7 +20,7 @@
 //      counts the file's rows against the checkfile.
 
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, copyFileSync, rmSync, existsSync, statSync } from 'node:fs'
+import { mkdtempSync, copyFileSync, rmSync, existsSync, statSync, realpathSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -39,7 +39,12 @@ if (!cli) fail('FLATQUACK_CLI is not set (absolute path to flatquack src/cli.js)
 const template = join(import.meta.dir, 'flatquack-hook.sql')
 
 rmSync(outCsv, { force: true })
-const viewDir = mkdtempSync(join(tmpdir(), 'flatquack-view-'))
+// Canonicalize like the harness does for its own temp dirs (tools/harness/
+// tempdir.js): on macOS tmpdir() is a /var→/private/var symlink, and flatquack
+// glob-walks --view-path. An uncanonicalized dir re-opens the symlink defect
+// that finding 1 fixed for {viewFile}; safe under node's symlink-following
+// glob, but we don't want to depend on that.
+const viewDir = realpathSync(mkdtempSync(join(tmpdir(), 'flatquack-view-')))
 let result
 try {
   copyFileSync(viewFile, join(viewDir, 'view.json'))
