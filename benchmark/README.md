@@ -71,9 +71,12 @@ JSON bodies:
    engine's best representation → `{"ok":true}`. A second `prepare` REPLACES
    the prepared dataset, it never accumulates.
 3. `POST /run` `{"view":…,"outCsv":…}` — evaluate the ViewDefinition and FULLY
-   WRITE the flat result as CSV to `outCsv`, then respond
-   `{"ok":true,"outputRows":…,"phasesMs":{…}}` (both fields optional/advisory —
-   the harness counts rows from the file and owns the clock)
+   WRITE the flat result to `outCsv` as a **single CSV file with a header row**
+   (RFC-4180), then respond `{"ok":true,"outputRows":…,"phasesMs":{…}}` (both
+   fields optional/advisory — the harness counts rows from the file, as the
+   lines below the header, and owns the clock). This output-format contract is
+   the same in every lifecycle mode; an engine whose native writer emits a
+   directory of part files must coalesce to one headed file.
 4. `POST /reset` — discard the prepared dataset so the next `prepare` re-does
    the full ingest → `{"ok":true}`
 5. `POST /shutdown` — release resources and (spawn mode) exit 0
@@ -166,6 +169,10 @@ The harness substitutes `{dataDir}` (the materialized dataset directory),
 `{viewFile}` (a temp file it writes with the case's ViewDefinition JSON) and
 `{outCsv}` (where to write the CSV) — as substrings within elements, so
 `--out={outCsv}` works — and spawns the argv directly, never via a shell.
+`{outCsv}` follows the same output-format contract as any `/run` (a single
+headed CSV file — see above); a Spark/Hadoop-style writer that emits a
+directory of part files must coalesce to one file, e.g. Pathling's
+`pathling view --departition`.
 Exit 0 with the CSV fully written means success; a non-zero exit fails that
 case with your stderr tail as the diagnostic. Each timed sample spawns one
 fresh process, so a CLI hook serves `end_to_end` only — run it with
