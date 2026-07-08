@@ -5,7 +5,7 @@ Bun 1.3.1, DuckDB binding ^1.4.1, macOS (Apple Silicon). Hook:
 `hook.json` + `flatquack-hook.js` (thin adapter) + `flatquack-hook.sql` in
 this directory (machine-local flatquack path in `env.FLATQUACK_CLI` — see
 README.md). Suite: `clinical-flat`, scenario `end_to_end` (the only scenario
-a CLI hook declares), sizes `s`, `m`.
+a CLI hook declares), sizes `s`, `m`, `l`.
 
 Outcomes per the taxonomy in `../README.md`.
 
@@ -123,12 +123,14 @@ are the harness's own, counted from the written CSV against the checkfile).
 | ---- | ------ |
 | `s`  | **verified clean pass** — both cases `ok`, `verified: true`, rows 6406 / 4366 (checkfile-exact), 5 samples each; report valid against `benchmark-report.schema.json`, JMH export well-formed (identity in `params`, rows as secondary metric). |
 | `m`  | **verified clean pass** — both cases `ok`, `verified: true`, rows 48908 / 39479 (checkfile-exact), zero flakes across 4 repeat runs. |
+| `l`  | **verified clean pass** — both cases `ok`, `verified: true`, rows 459611 / 390615 (checkfile-exact), zero flakes across 3 repeat runs. The largest scale (442 MB / 923 MB NDJSON) is the strongest test of the #42 node fix — no crashes. |
 
 With the #42 fix (finding 3), no sample crashes and timing carries no panic
 overhead — so the numbers are meaningful, not just the row counts. Both sizes
 pass on the first attempt with no retries. This closes the exercise's
-size-`s`+`m` exit criterion for this target with **no contract change forced**
-by findings 2–4 (finding 1 remains the one contract defect fixed here).
+size `s`/`m`/`l` exit criterion for this target with **no contract change
+forced** by findings 2–4 (finding 1 remains the one contract defect fixed
+here).
 
 ### Timing (Apple M3 Pro, node v25, `end_to_end`, 5 samples/case)
 
@@ -142,16 +144,23 @@ run, not warm per-query cost. Report the **median**.
 | `s`  | observation-components | 4366 | 293 ms | 294 ms | 288–302 |
 | `m`  | condition-flat | 48908 | 303 ms | 303 ms | 293–309 |
 | `m`  | observation-components | 39479 | 373 ms | 371 ms | 358–378 |
+| `l`  | condition-flat | 459611 | 363 ms | 410 ms | 358–607 |
+| `l`  | observation-components | 390615 | 1135 ms | 1133 ms | 1101–1165 |
 
-**Startup-dominated, not data-dominated.** condition-flat is essentially flat
-from `s` to `m` (≈8× the rows: 291→303 ms), and observation-components scales
-only 293→373 ms for 10×. The ~290 ms floor is fixed overhead — node boot,
-loading the 54 MB `duckdb.node` native addon, parsing the 511 KB FHIR R4
-schema, and FHIRPath→SQL compile — on top of which DuckDB scans tens of
-thousands of rows in the noise. These CLI numbers are therefore not
-comparable to a warm/server (`preloaded_repeated`) deployment, which
-amortizes that floor away; that is what `implementation.variant`
+**Startup floor, then the data cost emerges at `l`.** condition-flat is nearly
+flat `s`→`m` (291→303 ms) and only reaches 363 ms at `l` (459k rows from a
+442 MB file) — a simple projection stays close to the fixed ~290 ms floor
+(node boot, loading the 54 MB `duckdb.node` addon, parsing the 511 KB FHIR R4
+schema, FHIRPath→SQL compile). observation-components, a `forEach` unnest over
+`component`, is where scale shows: 293→373→**1135 ms** as the Observation
+NDJSON grows to 923 MB — genuinely data-bound at `l`. These CLI numbers are
+not comparable to a warm/server (`preloaded_repeated`) deployment, which
+amortizes the startup floor away; that is what `implementation.variant`
 (`cli-master-fix`) records.
+
+The cold-start first-sample outlier recurs predictably at `l` too
+(condition-flat 607 ms first sample vs 358–363 ms after) — same page-cache
+first-touch effect described below, now over the larger data file.
 
 **On the one outlier** (`s`/condition-flat max 397 ms, pulling its mean above
 its median): a cold-start first-touch I/O cost paid only by the *first*
