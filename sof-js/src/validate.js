@@ -47,6 +47,7 @@ function viewdef_schema(for_tests = false) {
       name: string,
       url: string,
       version: string,
+      fhirVersion: { type: array, items: string },
       resource: identifier,
       constant: {
         type: array,

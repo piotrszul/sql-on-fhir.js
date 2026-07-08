@@ -94,6 +94,36 @@
         ]
       },
       "expectError": true
+    },
+    {
+      "title": "shareable metadata elements are accepted",
+      "tags": ["shareable"],
+      "view": {
+        "url": "https://example.org/ViewDefinition/patient_ids",
+        "name": "patient_ids",
+        "status": "active",
+        "fhirVersion": ["4.0.1"],
+        "resource": "Patient",
+        "select": [
+          {
+            "column": [
+              {
+                "name": "id",
+                "path": "id",
+                "type": "id"
+              }
+            ]
+          }
+        ]
+      },
+      "expect": [
+        {
+          "id": "pt1"
+        },
+        {
+          "id": "pt2"
+        }
+      ]
     }
   ]
 }

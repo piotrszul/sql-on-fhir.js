@@ -1,8 +1,8 @@
 import { spawn } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { tmpdir } from 'node:os'
 import { terminateGroup } from './proc.js'
+import { makeEngineTempDir } from './tempdir.js'
 import { WorkerCrash, WorkerTimeout, SetupError, ProtocolError } from './worker.js'
 
 // The CLI connector (benchmark-hook-format "CLI hook mode"): a stateless
@@ -36,7 +36,7 @@ function checkTemplate(template) {
 export function startCliConnector(manifest) {
   const template = manifest.cli.run
   checkTemplate(template)
-  const workDir = mkdtempSync(join(tmpdir(), 'sof-cli-hook-'))
+  const workDir = makeEngineTempDir('sof-cli-hook-')
   const capabilities = { ok: true, scenarios: ['end_to_end'] }
   let dataDir = null
   let inFlight = null // the currently running engine child, if any
