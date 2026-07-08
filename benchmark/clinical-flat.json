@@ -31,6 +31,9 @@
       },
       "m": {
         "population": 1000
+      },
+      "l": {
+        "population": 10000
       }
     },
     "defaultSize": "m"

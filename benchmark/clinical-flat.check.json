@@ -32,16 +32,32 @@
           "sha256": "7cf68514eb90d16d1b6aefd3248b7365c4cb336951f8b80b448c3d0ee407ceb0"
         }
       }
+    },
+    "l": {
+      "resourceCounts": {
+        "Condition": 459611,
+        "Observation": 1004953
+      },
+      "files": {
+        "Condition.ndjson": {
+          "sha256": "c3e44fee431013de104a3a84ff308fb6056d061e16e11956ca6f95fff3ff72b2"
+        },
+        "Observation.ndjson": {
+          "sha256": "c396c86f11f27dd08b78660accbf0b1e3915baef1af495b53701861cdfdb0dea"
+        }
+      }
     }
   },
   "assertions": {
     "condition-flat": {
       "s": 6406,
-      "m": 48908
+      "m": 48908,
+      "l": 459611
     },
     "observation-components": {
       "s": 4366,
-      "m": 39479
+      "m": 39479,
+      "l": 390615
     }
   }
 }
