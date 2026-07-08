@@ -129,3 +129,35 @@ overhead — so the numbers are meaningful, not just the row counts. Both sizes
 pass on the first attempt with no retries. This closes the exercise's
 size-`s`+`m` exit criterion for this target with **no contract change forced**
 by findings 2–4 (finding 1 remains the one contract defect fixed here).
+
+### Timing (Apple M3 Pro, node v25, `end_to_end`, 5 samples/case)
+
+`end_to_end` times one fresh CLI invocation per sample, so the region
+**includes node + DuckDB process startup** — the real cost of a one-off CLI
+run, not warm per-query cost. Report the **median**.
+
+| size | case | rows | median | mean | min–max |
+| ---- | ---- | ---- | ------ | ---- | ------- |
+| `s`  | condition-flat | 6406 | 291 ms | 312 ms | 279–397 |
+| `s`  | observation-components | 4366 | 293 ms | 294 ms | 288–302 |
+| `m`  | condition-flat | 48908 | 303 ms | 303 ms | 293–309 |
+| `m`  | observation-components | 39479 | 373 ms | 371 ms | 358–378 |
+
+**Startup-dominated, not data-dominated.** condition-flat is essentially flat
+from `s` to `m` (≈8× the rows: 291→303 ms), and observation-components scales
+only 293→373 ms for 10×. The ~290 ms floor is fixed overhead — node boot,
+loading the 54 MB `duckdb.node` native addon, parsing the 511 KB FHIR R4
+schema, and FHIRPath→SQL compile — on top of which DuckDB scans tens of
+thousands of rows in the noise. These CLI numbers are therefore not
+comparable to a warm/server (`preloaded_repeated`) deployment, which
+amortizes that floor away; that is what `implementation.variant`
+(`cli-master-fix`) records.
+
+**On the one outlier** (`s`/condition-flat max 397 ms, pulling its mean above
+its median): a cold-start first-touch I/O cost paid only by the *first*
+flatquack process of a session — chiefly loading the 54 MB `duckdb.node`
+addon and the schema from cold page cache. It is **not** JIT warm-up (every
+`end_to_end` sample is a fresh process, so nothing warms across samples), and
+it does not reproduce once those files are page-cached: on warm re-runs the
+first sample is instead the *fastest* (~255 ms). Use the median; the mean is
+skewed by this one cold read.
