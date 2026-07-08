@@ -7,22 +7,17 @@
 //      single file, and the harness hands us one {viewFile} in a work dir that
 //      accumulates views across the session. We copy that one view into a
 //      fresh temp dir and point flatquack at it with its real, documented CLI
-//      (`--view-path <dir> --view-pattern '*.json'`) — no reliance on the
-//      fragile `..{viewFile}` glob idiom.
+//      (`--view-path <dir> --view-pattern '*.json'`).
 //
-//   2. Honest success signalling. Success is the OUTPUT: the CSV is written.
-//      flatquack currently exits 133 on an intermittent teardown segfault
-//      AFTER a correct write (aehrc/flatquack#42) and exits 0 with no output
-//      on a SQL failure (aehrc/flatquack#43) — both violate the CLI-hook
-//      contract. We ignore flatquack's own exit code and report success iff
-//      the CSV exists and is non-empty. The harness still counts the file's
-//      rows against the checkfile, so a truncated write fails as
-//      count_mismatch rather than a false pass.
-//
-// CAVEAT: masking #42 unblocks size-`m` contract validation (row counts
-// verify), but the timed region then carries Bun's panic/backtrace on crashed
-// samples, so timing from this wrapper is NOT trustworthy flatquack
-// performance until #42 is fixed upstream. See FINDINGS.md.
+//   2. Honest success signalling. A run succeeds iff flatquack exits 0 AND the
+//      output CSV was written. The exit-code half is trustworthy now that
+//      flatquack runs its `run` mode under node (aehrc/flatquack#42: Bun's
+//      duckdb native-addon teardown intermittently segfaulted after a correct
+//      write — the fixed CLI launches under node instead). The CSV half still
+//      guards aehrc/flatquack#43 (flatquack exits 0 with no output on a SQL
+//      failure). We delete any prior CSV first so a stale file from an earlier
+//      sample at the same path cannot mask a current failure; the harness then
+//      counts the file's rows against the checkfile.
 
 import { spawnSync } from 'node:child_process'
 import { mkdtempSync, copyFileSync, rmSync, existsSync, statSync } from 'node:fs'
@@ -43,16 +38,16 @@ const cli = process.env.FLATQUACK_CLI
 if (!cli) fail('FLATQUACK_CLI is not set (absolute path to flatquack src/cli.js)')
 const template = join(import.meta.dir, 'flatquack-hook.sql')
 
+rmSync(outCsv, { force: true })
 const viewDir = mkdtempSync(join(tmpdir(), 'flatquack-view-'))
+let result
 try {
   copyFileSync(viewFile, join(viewDir, 'view.json'))
-  // flatquack runs in this wrapper's process group (no `detached`), so the
-  // harness's timeout group-kill reaps it too. Exit code intentionally
-  // ignored — see job 2 above.
-  spawnSync(
-    'bun',
+  // Launch flatquack under node (see job 2 / #42), in this wrapper's process
+  // group (no `detached`) so the harness's timeout group-kill reaps it too.
+  result = spawnSync(
+    'node',
     [
-      'run',
       cli,
       '--mode',
       'run',
@@ -74,5 +69,5 @@ try {
   rmSync(viewDir, { recursive: true, force: true })
 }
 
-if (existsSync(outCsv) && statSync(outCsv).size > 0) process.exit(0)
-fail('flatquack produced no output CSV')
+if (result.status === 0 && existsSync(outCsv) && statSync(outCsv).size > 0) process.exit(0)
+fail(`flatquack failed (exit ${result.status ?? result.signal}) or wrote no output CSV`)

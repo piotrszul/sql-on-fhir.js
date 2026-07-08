@@ -87,12 +87,10 @@ exploration:
 
 ## Risks / Trade-offs
 
-- [Segfault #42 killed 100% of raw size-`m` samples] → `flatquack-hook.js`
-  keys success off the written CSV and ignores flatquack's exit code, so both
-  sizes now pass with verified counts; but crashed-sample *timing* carries
-  Bun's panic overhead, so numbers aren't trustworthy until #42 is fixed
-  (documented in FINDINGS). The harness's own row count guards against a
-  masked truncated write.
+- [Segfault #42 killed 100% of raw size-`m` samples] → fixed upstream by
+  running flatquack's `run` mode under node; `flatquack-hook.js` launches it
+  that way and requires a clean exit plus a written CSV. Both sizes now pass
+  with zero flakes and trustworthy timing (documented in FINDINGS entry 3).
 - [Machine-local tool path makes the checked-in hook non-portable] → reduced
   to a single `env.FLATQUACK_CLI` value in `hook.json`; explicit scaffolding
   contract already declares staging hooks machine-local and temporary; noted
@@ -105,10 +103,10 @@ exploration:
 ## Open Questions
 
 - Does the segfault rate under harness load allow a complete `s`+`m` pass?
-  (Empirical; answered during apply.) **Answered:** with `flatquack-hook.js`
-  keying success off the written CSV, both `s` and `m` pass with
-  checkfile-exact counts (6406/4366, 48908/39479). Timing is not yet
-  trustworthy — see FINDINGS.md entry 3; re-time after aehrc/flatquack#42.
+  (Empirical; answered during apply.) **Answered:** both `s` and `m` pass with
+  checkfile-exact counts (6406/4366, 48908/39479) and zero flakes, once #42 is
+  fixed upstream (flatquack runs under node) and `flatquack-hook.js` launches
+  it that way. Timing is trustworthy — see FINDINGS.md entry 3.
 - Report `implementation` identity: `engine.name: flatquack`,
   `engine.version: 0.2.1` + `variant` naming the master-fix checkout — exact
   variant string settled during apply. **Answered:** `cli-master-fix`.

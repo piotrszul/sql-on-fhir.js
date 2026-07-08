@@ -50,33 +50,32 @@ dir for the same reason.
 tool needs *no* adapter at all. Not needed for flatquack given the adapter,
 but worth deciding once all three targets are in.
 
-## 3. Intermittent Bun/duckdb segfault at process exit — **tool defect** ([aehrc/flatquack#42](https://github.com/aehrc/flatquack/issues/42))
+## 3. Intermittent Bun/duckdb segfault at process exit — **tool defect, FIXED upstream** ([aehrc/flatquack#42](https://github.com/aehrc/flatquack/issues/42))
 
-flatquack crashes *after* the CSV is fully and correctly written (Bun panic
-in teardown; exit 133 = SIGTRAP). Rate scales with data size: at size `s`
-roughly 1 in 4–10 invocations; at size `m` it killed *every* raw harness
-sample (the pass could not complete without an adapter).
+flatquack crashed *after* the CSV was fully and correctly written (Bun panic
+in teardown; exit 133 = SIGTRAP — the legacy `duckdb` native addon that Bun
+cannot finalize cleanly). Rate scaled with data size: at size `s` roughly 1
+in 4–10 invocations; at size `m` it killed *every* raw harness sample.
 
-Worked around by `flatquack-hook.js`, which defines success as "the CSV was
-written" and ignores flatquack's exit code — so a crash after a correct write
-is a pass, and the harness's independent row count still guards against a
-truncated write (→ `count_mismatch`, not a false pass). This unblocks both
-sizes (see pass record). **Caveat:** on a crashed sample the harness-timed
-region now includes Bun's panic/backtrace printing, so the *timing* from this
-hook is not trustworthy flatquack performance until #42 is fixed — the
-adapter buys a complete, count-verified pass, not clean numbers. Also filed
-upstream; drop the mask and re-time once fixed.
+**Fixed upstream** (flatquack `master-fix`): the `run`/`explore` modes now
+launch under **node** instead of Bun, which finalizes the addon cleanly. The
+adapter (`flatquack-hook.js`) runs `node <cli> --mode run …`; 6/6 manual and
+4/4 harness size-`m` runs exit 0 with no crash. flatquack's exit code is
+therefore trustworthy again, so the adapter honours it (success requires exit
+0 **and** a written CSV), and — crucially — the harness-timed region no longer
+carries panic overhead, so **timing is now trustworthy**.
 
 ## 4. Exit 0 on SQL execution failure — **tool defect** ([aehrc/flatquack#43](https://github.com/aehrc/flatquack/issues/43))
 
 `--mode run` logs DuckDB errors with `console.warn`, prints
 `Completed in N ms`, and exits 0 with no CSV written — indistinguishable
 from success by exit status, violating the CLI-mode contract ("exit 0 with
-the CSV fully written means success"). Two layers catch it here: the harness
-counts rows from the produced file against the checkfile (a missing file
-never verifies), and `flatquack-hook.js` — which keys success off the output
-CSV's existence — turns flatquack's dishonest exit 0 into an honest non-zero
-exit when no CSV was written.
+the CSV fully written means success"). Still open upstream (the #42 fix did
+not touch it). Two layers catch it here: the harness counts rows from the
+produced file against the checkfile (a missing file never verifies), and
+`flatquack-hook.js` requires a written CSV in addition to a clean exit —
+deleting any prior CSV first — so flatquack's dishonest exit 0 becomes an
+honest non-zero when no output was produced.
 
 ## 5. README's illustrative CLI manifest invented a flatquack CLI — **doc gap**
 
@@ -117,15 +116,16 @@ accepted" in `tests/validate.json` (fails on the old schema, passes now);
 
 ## Pass record
 
-Both via `flatquack-hook.js` (segfault masked per finding 3; row counts are
-the harness's own, counted from the written CSV against the checkfile).
+Both via `flatquack-hook.js` (flatquack under node, per finding 3; row counts
+are the harness's own, counted from the written CSV against the checkfile).
 
 | size | result |
 | ---- | ------ |
-| `s`  | **verified pass** — both cases `ok`, `verified: true`, rows 6406 / 4366 (checkfile-exact), 5 samples each; report valid against `benchmark-report.schema.json`, JMH export well-formed (identity in `params`, rows as secondary metric). |
-| `m`  | **verified pass** — both cases `ok`, `verified: true`, rows 48908 / 39479 (checkfile-exact), stable across 3 repeat runs. Previously blocked by finding 3; the adapter's output-based success signalling unblocks it. |
+| `s`  | **verified clean pass** — both cases `ok`, `verified: true`, rows 6406 / 4366 (checkfile-exact), 5 samples each; report valid against `benchmark-report.schema.json`, JMH export well-formed (identity in `params`, rows as secondary metric). |
+| `m`  | **verified clean pass** — both cases `ok`, `verified: true`, rows 48908 / 39479 (checkfile-exact), zero flakes across 4 repeat runs. |
 
-**Timing is not trustworthy yet** (finding 3): crashed samples carry Bun's
-panic overhead in the timed region. The pass proves the *contract* works
-end-to-end at both sizes with verified row counts; publishable flatquack
-numbers wait on aehrc/flatquack#42.
+With the #42 fix (finding 3), no sample crashes and timing carries no panic
+overhead — so the numbers are meaningful, not just the row counts. Both sizes
+pass on the first attempt with no retries. This closes the exercise's
+size-`s`+`m` exit criterion for this target with **no contract change forced**
+by findings 2–4 (finding 1 remains the one contract defect fixed here).
