@@ -1,0 +1,24 @@
+{
+  "cli": {
+    "run": [
+      "/Users/szu004/dev/pathling/lib/python/.venv-sof-cli/bin/pathling",
+      "view",
+      "{dataDir}",
+      "--from",
+      "ndjson",
+      "--view",
+      "{viewFile}",
+      "--format",
+      "csv",
+      "--departition",
+      "--overwrite",
+      "-o",
+      "{outCsv}"
+    ]
+  },
+  "implementation": {
+    "engine": { "name": "Pathling", "version": "9.9.0.dev" },
+    "binding": { "name": "pathling-python", "version": "9.9.0.dev" },
+    "variant": "cli"
+  }
+}

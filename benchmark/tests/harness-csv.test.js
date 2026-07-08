@@ -30,6 +30,18 @@ test('a header-only file is zero rows', () => {
   rmSync(dir, { recursive: true, force: true })
 })
 
+// The run-output contract (benchmark-hook-format) requires a single CSV file
+// carrying a HEADER row: the harness counts data rows as line-count-minus-one.
+// An engine that writes headerless CSV is therefore silently undercounted by
+// one and fails verification for a non-obvious reason — this pins that the
+// header is a contract requirement, not a cosmetic detail. Surfaced validating
+// the Pathling CLI hook (staging-hooks/pathling-cli/FINDINGS.md).
+test('a headerless CSV is undercounted — run output must carry a header row', () => {
+  const { path, dir } = csvFile('1,a\n2,b\n3,c') // three data rows, no header
+  expect(countCsvRows(path)).toBe(2) // miscounted by one: the header contract bites
+  rmSync(dir, { recursive: true, force: true })
+})
+
 test('a quoted embedded newline does not count as a row boundary', () => {
   const { path, dir } = csvFile('id,note\n1,"line one\nline two"\n2,plain')
   expect(countCsvRows(path)).toBe(2)
