@@ -153,11 +153,14 @@ load + execute + extract), the entire hook is a manifest:
 ```json
 {
   "cli": {
-    "run": ["flatquack", "--input", "{dataDir}", "--view", "{viewFile}", "--output", "{outCsv}"]
+    "run": ["my-engine", "--data", "{dataDir}", "--view", "{viewFile}", "--out={outCsv}"]
   },
-  "implementation": { "engine": { "name": "flatquack", "version": "0.3.0" } }
+  "implementation": { "engine": { "name": "my-engine", "version": "0.3.0" } }
 }
 ```
+
+(The argv shown is illustrative — spell the template in whatever flags your
+tool actually takes.)
 
 The harness substitutes `{dataDir}` (the materialized dataset directory),
 `{viewFile}` (a temp file it writes with the case's ViewDefinition JSON) and
@@ -165,7 +168,9 @@ The harness substitutes `{dataDir}` (the materialized dataset directory),
 `--out={outCsv}` works — and spawns the argv directly, never via a shell.
 Exit 0 with the CSV fully written means success; a non-zero exit fails that
 case with your stderr tail as the diagnostic. Each timed sample spawns one
-fresh process, so a CLI hook serves `end_to_end` only, and its timed region
+fresh process, so a CLI hook serves `end_to_end` only — run it with
+`--scenario end_to_end`, since the harness's default is `preloaded_repeated`,
+which a CLI hook never declares. Its timed region
 deliberately INCLUDES your process startup (interpreter/JVM boot): that is
 the real cost of a one-off CLI invocation. Numbers from a CLI hook and a
 server hook of the same engine are therefore different deployments — ship

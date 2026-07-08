@@ -1,5 +1,13 @@
 import { test, expect } from 'bun:test'
-import { mkdtempSync, writeFileSync, rmSync, readFileSync, existsSync } from 'node:fs'
+import {
+  mkdtempSync,
+  writeFileSync,
+  rmSync,
+  readFileSync,
+  existsSync,
+  symlinkSync,
+  realpathSync,
+} from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { readManifest } from '../tools/harness/manifest.js'
@@ -89,6 +97,34 @@ test('run substitutes placeholders (inside elements too), spawns fresh, and answ
   expect(again[1].pid).not.toBe(again[0].pid)
   await conn.shutdown()
   rmSync(workDir, { recursive: true, force: true })
+})
+
+test('the {viewFile} handed to the engine is a canonical path, even when tmpdir is a symlink', async () => {
+  // macOS's default tmpdir lives behind a symlink (/var -> /private/var). A
+  // symlink-y {viewFile} breaks engines that resolve or glob-walk the path
+  // (found validating the flatquack staging hook), so the connector must hand
+  // out physical paths. Force the situation on every platform: point TMPDIR
+  // at a symlink to the real work area.
+  const workDir = seed()
+  const linkDir = join(workDir, 'tmp-link')
+  symlinkSync(workDir, linkDir)
+  const oldTmpdir = process.env.TMPDIR
+  process.env.TMPDIR = linkDir
+  try {
+    const conn = await startConnector(cliManifest(workDir))
+    await conn.send({ cmd: 'prepare', dataDir: workDir, resources: ['Observation'] })
+    await conn.send(
+      { cmd: 'run', view: { resource: 'Observation' }, outCsv: join(workDir, 'c.csv') },
+      { timeoutMs: 10_000 },
+    )
+    const viewFileArg = spawnsOf(workDir)[0].argv[1]
+    expect(viewFileArg).toBe(realpathSync(viewFileArg))
+    await conn.shutdown()
+  } finally {
+    if (oldTmpdir === undefined) delete process.env.TMPDIR
+    else process.env.TMPDIR = oldTmpdir
+    rmSync(workDir, { recursive: true, force: true })
+  }
 })
 
 test('argv elements reach the engine literally: no shell interpretation', async () => {

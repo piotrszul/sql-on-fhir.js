@@ -44,6 +44,10 @@
       "title": "condition flat",
       "description": "One row per Condition with code and clinical status.",
       "view": {
+        "url": "https://sql-on-fhir.org/ig/benchmark/ViewDefinition/condition-flat",
+        "name": "condition_flat",
+        "status": "active",
+        "fhirVersion": ["4.0.1"],
         "resource": "Condition",
         "select": [
           {
@@ -73,6 +77,10 @@
       "title": "observation components",
       "description": "One row per Observation component (forEach over component).",
       "view": {
+        "url": "https://sql-on-fhir.org/ig/benchmark/ViewDefinition/observation-components",
+        "name": "observation_components",
+        "status": "active",
+        "fhirVersion": ["4.0.1"],
         "resource": "Observation",
         "select": [
           {

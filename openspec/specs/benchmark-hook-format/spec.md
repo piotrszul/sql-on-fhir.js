@@ -211,7 +211,10 @@ is the executable; the placeholders `{dataDir}` (the materialized dataset
 directory), `{viewFile}` (a harness-written temp file containing the case's
 ViewDefinition JSON), and `{outCsv}` (the CSV output path) are substituted as
 substrings within each element, and the argv is spawned directly, never via a
-shell. The manifest's `cwd` and `env` apply to the spawned command. The
+shell. The temp paths the harness hands the engine — `{viewFile}` and the
+directory holding `{outCsv}` — SHALL be canonical (symlink-free), so engines
+that resolve or glob-walk a path string observe the same file the harness
+intended. The manifest's `cwd` and `env` apply to the spawned command. The
 harness SHALL reject, loudly and before any case runs, a template containing
 an unknown `{...}` placeholder or omitting `{outCsv}`. For each `run` the
 harness spawns ONE fresh engine process from the template and treats the
@@ -233,6 +236,13 @@ dataset-cold on every invocation by construction.
 - **WHEN** a template element is `--input={dataDir}`
 - **THEN** the spawned argv element is `--input=<the dataset directory>`,
   with no shell involved
+
+#### Scenario: viewFile is a canonical path
+
+- **WHEN** the platform temp directory sits behind a symlink (e.g. macOS's
+  `/var -> /private/var`) and a CLI hook's `run` is invoked
+- **THEN** the `{viewFile}` substituted into the argv equals its own
+  filesystem realpath
 
 #### Scenario: Unknown placeholder is refused before any case
 
