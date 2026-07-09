@@ -4,7 +4,7 @@ Target: Pathling **Server** `ghcr.io/aehrc/pathling:latest` (engine
 `Pathling` version `2.0.1+78a3f75`, FHIR `4.0.1`), run as a Docker container on
 macOS (Apple Silicon), Java/Spark inside the image. Adapter:
 `pathling-server-hook.js` (Bun), translating the five-command HTTP hook protocol
-to Pathling's REST API. Suite: `clinical-flat`, sizes `s` and `m`.
+to Pathling's REST API. Suite: `clinical-flat`, sizes `s`, `m` and `l`.
 
 This is the deep protocol test — the only one of the three siblings exercising
 the full `capabilities` / `prepare` / `run` / `reset` / `shutdown` HTTP protocol
@@ -27,8 +27,9 @@ thin Bun adapter (the HTTP-hook analog of the CLI shims — the role
 - `reset` → best-effort (see finding 2); `shutdown` → stop the owned container
   (spawn) then exit; `capabilities` → the scenarios the deployment can honour.
 
-Both `clinical-flat` cases produce checkfile-exact counts at both sizes in both
-modes (`s` 6406/4366, `m` 48908/39479). The declared `column.type`s
+Both `clinical-flat` cases produce checkfile-exact counts at every size in both
+modes (`s` 6406/4366, `m` 48908/39479, `l` 459611/390615). The declared
+`column.type`s
 (`string`, `code`) and `getResourceKey()` / `.first()` FHIRPath are honoured by
 the server exactly as they were by the CLI. No protocol friction; the contract
 needed no change to accommodate a real, independent HTTP implementation.
@@ -80,11 +81,13 @@ declared in connect mode.
 
 `preloaded_repeated` prepares OUTSIDE the timed region and then times `run`
 round-trips; warmth across samples is the *point* of the scenario, not a
-distortion. Against the warm server the medians are tiny and query-bound —
-tens of ms at `s` (66/76 ms), a few hundred ms at `m` (228/158 ms) — and the
+distortion. Against the warm server the medians are query-bound and scale with
+result size — tens of ms at `s` (66/76 ms), a few hundred ms at `m` (228/158 ms),
+a second or two at `l` (1834/1283 ms over ~1.5M imported resources) — and the
 advisory `phaseSamplesMs` confirm it: the `execute` phase is essentially the
-whole sample (~66 ms at `s`, ~160–230 ms at `m`) while `extract` (writing the
-buffered CSV) is well under 1 ms. These are exactly warm per-query numbers,
+whole sample (~66 ms at `s`, ~160–230 ms at `m`, ~1.3–1.8 s at `l`) while
+`extract` (writing the buffered CSV) stays a handful of ms at every size. These
+are exactly warm per-query numbers,
 distinct from the cold end-to-end cost, and `implementation.variant: server`
 marks them as a different deployment from the CLI's per-invocation cold numbers.
 
@@ -95,10 +98,12 @@ Pathling container — per `end_to_end` sample, so coldness is by construction.
 The container boot (~5.5 s to a serving FHIR endpoint) lands in the harness's
 UNTIMED spawn/readiness region ("VM boot is not ETL cost"); the timed region is
 `prepare` (`$import`) + `run` (`$viewdefinition-run`). The samples bear this out:
-`s` ~8.3–8.6 s and `m` ~13.3–13.8 s per sample, of which the advisory `execute`
-phase (the first, cold Spark query) is ~2.0–3.4 s and the balance is the cold
-`$import`. This is the deliberate load-boundary decision working as designed for
-a service that owns its own engine lifecycle.
+`s` ~8.3–8.6 s, `m` ~13.3–13.8 s, and `l` ~36–42 s per sample, of which the
+advisory `execute` phase (the first, cold Spark query) is ~2.0–3.4 s at `s`/`m`
+and ~5–13 s at `l`, and the balance is the cold `$import` (which dominates and
+scales with data volume — ~1.5M resources at `l`). This is the deliberate
+load-boundary decision working as designed for a service that owns its own
+engine lifecycle.
 
 ## 6. Spawn readiness budget was adequate — **observation (no contract change)**
 
@@ -157,8 +162,10 @@ against the checkfile.
 | ------- | ------------------ | ---- | ------ |
 | connect | preloaded_repeated | `s`  | **verified clean pass** — both cases `ok`/`verified`, 6406 / 4366 (checkfile-exact), 1 warmup + 5 samples; report valid against `benchmark-report.schema.json`, JMH export well-formed (`variant: server` in `params`). |
 | connect | preloaded_repeated | `m`  | **verified clean pass** — 48908 / 39479 (checkfile-exact); report + JMH valid. |
+| connect | preloaded_repeated | `l`  | **verified clean pass** — 459611 / 390615 (checkfile-exact), warm query over ~1.5M imported resources; report + JMH valid. |
 | spawn   | end_to_end         | `s`  | **verified clean pass** — 6406 / 4366 (checkfile-exact), 0 warmup + 5 samples (fresh container per sample); no leaked containers; report + JMH valid. |
 | spawn   | end_to_end         | `m`  | **verified clean pass** — 48908 / 39479 (checkfile-exact); report + JMH valid. |
+| spawn   | end_to_end         | `l`  | **verified clean pass** — 459611 / 390615 (checkfile-exact), a fresh container + cold `$import` of ~1.5M resources per sample (10 samples, no leaked containers); report + JMH valid. |
 
 No tool defect, no benchmark-case defect, **and no contract change of any kind
 was forced** — every spec-stress point the design raised (reset honesty,
@@ -181,10 +188,14 @@ whether this constitutes the exercise's "quiet round" exit criterion.
 | connect | preloaded_repeated | `s`  | observation-components | 4366  | 76 ms    | 90 ms    | 69–140 ms      |
 | connect | preloaded_repeated | `m`  | condition-flat         | 48908 | 228 ms   | 263 ms   | 161–359 ms     |
 | connect | preloaded_repeated | `m`  | observation-components | 39479 | 158 ms   | 175 ms   | 154–242 ms     |
+| connect | preloaded_repeated | `l`  | condition-flat         | 459611 | 1834 ms  | 1915 ms  | 935–3234 ms    |
+| connect | preloaded_repeated | `l`  | observation-components | 390615 | 1283 ms  | 1551 ms  | 1263–2231 ms   |
 | spawn   | end_to_end         | `s`  | condition-flat         | 6406  | 8328 ms  | 8332 ms  | 8167–8482 ms   |
 | spawn   | end_to_end         | `s`  | observation-components | 4366  | 8618 ms  | 8625 ms  | 8400–8872 ms   |
 | spawn   | end_to_end         | `m`  | condition-flat         | 48908 | 13305 ms | 13650 ms | 12655–15101 ms |
 | spawn   | end_to_end         | `m`  | observation-components | 39479 | 13754 ms | 13838 ms | 13442–14382 ms |
+| spawn   | end_to_end         | `l`  | condition-flat         | 459611 | 35760 ms | 36717 ms | 34743–39591 ms |
+| spawn   | end_to_end         | `l`  | observation-components | 390615 | 42452 ms | 42396 ms | 41532–43028 ms |
 
 **Warm vs cold, honestly separated.** The connect/`preloaded_repeated` numbers
 are warm per-query cost (tens to hundreds of ms; the server holds prepared
