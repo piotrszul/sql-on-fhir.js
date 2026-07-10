@@ -18,6 +18,7 @@ import { writeJmhExports } from './jmh.js'
 import { checkfileFor, pathFrom } from '../layout.js'
 import { readCheckfile, verifyChecksums } from '../checkfile.js'
 import { validateSchema } from '../validate-benchmarks.js'
+import { buildCaseFilter } from '../case-filter.js'
 
 function parseArgs(argv) {
   const opts = { positional: [] }
@@ -28,6 +29,8 @@ function parseArgs(argv) {
     else if (argv[i] === '--data') opts.dataRoot = argv[++i]
     else if (argv[i] === '--jmh') opts.jmhDir = argv[++i]
     else if (argv[i] === '--out') opts.out = argv[++i]
+    else if (argv[i] === '--only') opts.only = argv[++i]
+    else if (argv[i] === '--exclude') opts.exclude = argv[++i]
     else if (argv[i] === '--strict') opts.strict = true
     else opts.positional.push(argv[i])
   }
@@ -85,12 +88,21 @@ export async function runCli(argv) {
     }
   }
 
+  // --only / --exclude select a subset of cases; an unknown id fails loudly here
+  // (before any worker is started) rather than silently running nothing.
+  const caseFilter = buildCaseFilter({
+    only: opts.only,
+    exclude: opts.exclude,
+    knownIds: benchmark.cases.map((c) => c.id),
+  })
+
   const report = await runSuite({
     benchmark,
     size,
     dataRoot,
     manifest,
     checkfile,
+    ...(caseFilter ? { caseFilter } : {}),
     ...(opts.scenario ? { scenario: opts.scenario } : {}),
   })
   const json = JSON.stringify(report, null, 2)

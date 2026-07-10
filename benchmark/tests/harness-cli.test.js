@@ -127,6 +127,71 @@ test('end-to-end smoke: fixture data -> harness + sof-js hook -> verified report
   rmSync(root, { recursive: true, force: true })
 }, 20_000)
 
+test('--only selects a subset of cases; only those appear in the report', async () => {
+  const { root, dataRoot, suitePath } = seedWorkspace()
+  const reportPath = join(root, 'only-report.json')
+  await runCli([
+    'run',
+    '--hook',
+    sofJsHook,
+    suitePath,
+    '--size',
+    's',
+    '--data',
+    dataRoot,
+    '--only',
+    'obs',
+    '--out',
+    reportPath,
+  ])
+  const report = JSON.parse(readFileSync(reportPath, 'utf8'))
+  const cases = report.results['smoke'].cases
+  expect(cases.map((c) => c.id)).toEqual(['obs'])
+  rmSync(root, { recursive: true, force: true })
+}, 20_000)
+
+test('--exclude removes a case; every other case is measured', async () => {
+  const { root, dataRoot, suitePath } = seedWorkspace()
+  const reportPath = join(root, 'exclude-report.json')
+  await runCli([
+    'run',
+    '--hook',
+    sofJsHook,
+    suitePath,
+    '--size',
+    's',
+    '--data',
+    dataRoot,
+    '--exclude',
+    'obs-components',
+    '--out',
+    reportPath,
+  ])
+  const report = JSON.parse(readFileSync(reportPath, 'utf8'))
+  const cases = report.results['smoke'].cases
+  expect(cases.map((c) => c.id)).toEqual(['obs'])
+  rmSync(root, { recursive: true, force: true })
+}, 20_000)
+
+test('an unknown --only id fails loudly before any case is run', async () => {
+  const { root, dataRoot, suitePath } = seedWorkspace()
+  await expect(
+    runCli([
+      'run',
+      '--hook',
+      sofJsHook,
+      suitePath,
+      '--size',
+      's',
+      '--data',
+      dataRoot,
+      '--only',
+      'no-such-case',
+    ]),
+  ).rejects.toThrow(/unknown case id/)
+  rmSync(root, { recursive: true, force: true })
+})
+
 test('CLI-mode hook end-to-end through the harness CLI: report written and schema-valid', async () => {
   const { root, dataRoot } = seedWorkspace()
   const fakeCliHook = join(import.meta.dir, 'fixtures/hooks/fake-cli.hook.json')

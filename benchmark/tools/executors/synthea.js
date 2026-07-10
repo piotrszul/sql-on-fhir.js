@@ -47,9 +47,12 @@ export function makeSyntheaExecutor({
       // endTime is surfaced by the benchmark invariant validator, not defaulted here.
       '-e',
       String(p.endTime),
-      // Serialise generation so the export order is deterministic (counts are
-      // already deterministic given -e; only order depends on thread count).
-      '--generate.thread_count=1',
+      // No generation thread flag: `--generate.thread_count` is not a real Synthea
+      // property (silently ignored), and even a genuine single-threaded pool does
+      // not make bulk NDJSON export order deterministic — export runs on the
+      // multi-threaded generator pool as patients finish. Counts are deterministic
+      // given the pinned seeds/-e; line ORDER is not, so the materializer
+      // canonicalises (external merge sort) to stabilise the persisted bytes.
       `--exporter.baseDirectory=${outDir}`,
       // --exporter.fhir.export is a mode selector (turning it off yields no data),
       // so it is an executor invariant rather than a recipe-controlled dataset dial.
@@ -61,6 +64,15 @@ export function makeSyntheaExecutor({
       `--exporter.practitioner.fhir.export=${p.practitionerExport}`,
       `--exporter.years_of_history=${p.yearsOfHistory}`,
     ]
+    // Export-filtered generation: constrain the FHIR bulk export to the recipe's
+    // resource types so Synthea never converts/serialises/writes the unwanted ones
+    // (a big saving at xl for large resources like Claim/ExplanationOfBenefit).
+    // Synthea force-exports Patient and Encounter regardless; the materializer's
+    // prune mops those up when they are not in the recipe. When the recipe lists no
+    // resources, no filter is emitted (generate everything, as before).
+    if (recipe.resources && recipe.resources.length) {
+      args.push(`--exporter.fhir.included_resources=${recipe.resources.join(',')}`)
+    }
     // Run Synthea in an ISOLATED working directory (the per-materialization staging
     // dir, which lives outside the repo tree) so its incidental db.sqlite and
     // public/export/<epoch>/ artifacts never land in the repo root; the staging dir

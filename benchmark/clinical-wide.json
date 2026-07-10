@@ -1,0 +1,273 @@
+{
+  "name": "clinical-wide",
+  "version": "1",
+  "title": "clinical-wide",
+  "description": "The portable Pathling view set over clustered Synthea clinical resources (Patient, Encounter, Condition, Observation): nested forEach, forEachOrNull, unionAll and a US Core profile view.",
+  "group": "synthea-clinical-wide",
+  "fhirVersion": "4.0.1",
+  "iterations": {
+    "warmup": 1,
+    "measurement": 5
+  },
+  "dataset": {
+    "name": "synthea-clinical-wide",
+    "kind": "synthea",
+    "version": "1",
+    "syntheaVersion": "3.2.0",
+    "resources": ["Patient", "Encounter", "Condition", "Observation"],
+    "params": {
+      "seed": 589,
+      "clinicianSeed": 1652609873669,
+      "referenceTime": 20240101,
+      "endTime": 20250101,
+      "yearsOfHistory": 1,
+      "hospitalExport": false,
+      "practitionerExport": false,
+      "bulkData": true
+    },
+    "sizes": {
+      "s": {
+        "population": 100
+      },
+      "m": {
+        "population": 1000
+      },
+      "l": {
+        "population": 10000
+      },
+      "xl": {
+        "population": 100000
+      }
+    },
+    "defaultSize": "m"
+  },
+  "cases": [
+    {
+      "id": "condition-flat",
+      "title": "condition flat",
+      "description": "One row per Condition, exploded across code/category/clinical-status/verification-status codings (forEachOrNull cross-join).",
+      "view": {
+        "url": "https://sql-on-fhir.org/ig/benchmark/ViewDefinition/condition-flat-wide",
+        "name": "condition_flat",
+        "status": "active",
+        "fhirVersion": ["4.0.1"],
+        "resource": "Condition",
+        "select": [
+          {
+            "column": [
+              { "name": "id", "path": "getResourceKey()", "type": "string" },
+              { "name": "patient_id", "path": "subject.getReferenceKey(Patient)", "type": "string" },
+              { "name": "encounter_id", "path": "encounter.getReferenceKey(Encounter)", "type": "string" },
+              { "name": "onset_datetime", "path": "onset.ofType(dateTime)", "type": "dateTime" }
+            ]
+          },
+          {
+            "forEachOrNull": "code.coding",
+            "column": [
+              { "name": "system", "path": "system", "type": "uri" },
+              { "name": "code", "path": "code", "type": "code" }
+            ]
+          },
+          {
+            "forEachOrNull": "category.coding",
+            "column": [{ "name": "category", "path": "code", "type": "code" }]
+          },
+          {
+            "forEachOrNull": "clinicalStatus.coding",
+            "column": [{ "name": "clinical_status", "path": "code", "type": "code" }]
+          },
+          {
+            "forEachOrNull": "verificationStatus.coding",
+            "column": [{ "name": "verification_status", "path": "code", "type": "code" }]
+          }
+        ]
+      }
+    },
+    {
+      "id": "encounter-flat",
+      "title": "encounter flat",
+      "description": "One row per Encounter, exploded across type codings, participants and locations (forEachOrNull cross-join).",
+      "view": {
+        "url": "https://sql-on-fhir.org/ig/benchmark/ViewDefinition/encounter-flat-wide",
+        "name": "encounter_flat",
+        "status": "active",
+        "fhirVersion": ["4.0.1"],
+        "resource": "Encounter",
+        "select": [
+          {
+            "column": [
+              { "name": "id", "path": "getResourceKey()", "type": "string" },
+              { "name": "status", "path": "status", "type": "code" },
+              { "name": "patient_id", "path": "subject.getReferenceKey(Patient)", "type": "string" },
+              {
+                "name": "service_org_id",
+                "path": "serviceProvider.getReferenceKey(Organization)",
+                "type": "string"
+              },
+              { "name": "period_start", "path": "period.start", "type": "dateTime" },
+              { "name": "period_end", "path": "period.end", "type": "dateTime" },
+              {
+                "name": "episode_of_care_id",
+                "path": "episodeOfCare.getReferenceKey(EpisodeOfCare)",
+                "type": "string"
+              }
+            ]
+          },
+          {
+            "forEachOrNull": "type.coding",
+            "column": [
+              { "name": "type_sys", "path": "system", "type": "uri" },
+              { "name": "type_code", "path": "code", "type": "code" }
+            ]
+          },
+          {
+            "forEachOrNull": "participant",
+            "column": [
+              {
+                "name": "practitioner_id",
+                "path": "individual.getReferenceKey(Practitioner)",
+                "type": "string"
+              }
+            ]
+          },
+          {
+            "forEachOrNull": "location",
+            "column": [
+              { "name": "location_id", "path": "location.getReferenceKey(Location)", "type": "string" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "patient-addresses",
+      "title": "patient addresses",
+      "description": "One row per Patient address (forEach over address).",
+      "view": {
+        "url": "https://sql-on-fhir.org/ig/benchmark/ViewDefinition/patient-addresses",
+        "name": "patient_addresses",
+        "status": "active",
+        "fhirVersion": ["4.0.1"],
+        "resource": "Patient",
+        "select": [
+          {
+            "column": [{ "name": "patient_id", "path": "getResourceKey()", "type": "string" }]
+          },
+          {
+            "forEach": "address",
+            "column": [
+              { "name": "street", "path": "line.join('\\n')", "type": "string" },
+              { "name": "use", "path": "use", "type": "code" },
+              { "name": "city", "path": "city", "type": "string" },
+              { "name": "zip", "path": "postalCode", "type": "string" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "patient-and-contact-addresses",
+      "title": "patient and contact addresses",
+      "description": "Union of Patient addresses and contact addresses (unionAll of two forEach branches).",
+      "view": {
+        "url": "https://sql-on-fhir.org/ig/benchmark/ViewDefinition/patient-and-contact-addresses",
+        "name": "patient_and_contact_addresses",
+        "status": "active",
+        "fhirVersion": ["4.0.1"],
+        "resource": "Patient",
+        "select": [
+          {
+            "column": [{ "name": "resource_id", "path": "getResourceKey()", "type": "string" }],
+            "unionAll": [
+              {
+                "forEach": "address",
+                "column": [
+                  { "name": "street", "path": "line.join('\\n')", "type": "string" },
+                  { "name": "city", "path": "city", "type": "string" },
+                  { "name": "zip", "path": "postalCode", "type": "string" },
+                  { "name": "is_patient", "path": "true", "type": "boolean" }
+                ]
+              },
+              {
+                "forEach": "contact.address",
+                "column": [
+                  { "name": "street", "path": "line.join('\\n')", "type": "string" },
+                  { "name": "city", "path": "city", "type": "string" },
+                  { "name": "zip", "path": "postalCode", "type": "string" },
+                  { "name": "is_patient", "path": "false", "type": "boolean" }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "patient-demographics",
+      "title": "patient demographics",
+      "description": "One row per Patient with the official name (forEach over the first official name).",
+      "view": {
+        "url": "https://sql-on-fhir.org/ig/benchmark/ViewDefinition/patient-demographics",
+        "name": "patient_demographics",
+        "status": "active",
+        "fhirVersion": ["4.0.1"],
+        "resource": "Patient",
+        "select": [
+          {
+            "column": [
+              { "name": "id", "path": "getResourceKey()", "type": "string" },
+              { "name": "gender", "path": "gender", "type": "code" }
+            ]
+          },
+          {
+            "forEach": "name.where(use = 'official').first()",
+            "column": [
+              { "name": "given_name", "path": "given.join(' ')", "type": "string" },
+              { "name": "family_name", "path": "family", "type": "string" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "us-core-blood-pressures",
+      "title": "US Core blood pressures",
+      "description": "US Core blood pressure Observations flattened to systolic/diastolic components (view-level where + forEach.first()).",
+      "view": {
+        "url": "https://sql-on-fhir.org/ig/benchmark/ViewDefinition/us-core-blood-pressures",
+        "name": "us_core_blood_pressures",
+        "status": "active",
+        "fhirVersion": ["4.0.1"],
+        "resource": "Observation",
+        "select": [
+          {
+            "column": [
+              { "name": "id", "path": "getResourceKey()", "type": "string" },
+              { "name": "patient_id", "path": "subject.getReferenceKey(Patient)", "type": "string" },
+              { "name": "effective_date_time", "path": "effective.ofType(dateTime)", "type": "dateTime" }
+            ]
+          },
+          {
+            "forEach": "component.where(code.coding.exists(system='http://loinc.org' and code='8480-6')).first()",
+            "column": [
+              { "name": "sbp_quantity_system", "path": "value.ofType(Quantity).system", "type": "uri" },
+              { "name": "sbp_quantity_code", "path": "value.ofType(Quantity).code", "type": "code" },
+              { "name": "sbp_quantity_unit", "path": "value.ofType(Quantity).unit", "type": "string" },
+              { "name": "sbp_quantity_value", "path": "value.ofType(Quantity).value", "type": "decimal" }
+            ]
+          },
+          {
+            "forEach": "component.where(code.coding.exists(system='http://loinc.org' and code='8462-4')).first()",
+            "column": [
+              { "name": "dbp_quantity_system", "path": "value.ofType(Quantity).system", "type": "uri" },
+              { "name": "dbp_quantity_code", "path": "value.ofType(Quantity).code", "type": "code" },
+              { "name": "dbp_quantity_unit", "path": "value.ofType(Quantity).unit", "type": "string" },
+              { "name": "dbp_quantity_value", "path": "value.ofType(Quantity).value", "type": "decimal" }
+            ]
+          }
+        ],
+        "where": [{ "path": "code.coding.exists(system='http://loinc.org' and code='85354-9')" }]
+      }
+    }
+  ]
+}

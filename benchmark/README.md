@@ -31,8 +31,12 @@ release, checksum-verifies it against a committed pin, and caches it under
 
 Output: `data/<name>/<version>/<size>/<ResourceType>.ndjson` + `manifest.json`.
 `<size>` selects the population; `<version>` is the authored dataset version
-(`dataset.version`, bumped deliberately when the recipe should re-generate). Only
-the recipe's `resources` are kept; siblings are pruned.
+(`dataset.version`, bumped deliberately when the recipe should re-generate).
+Generation is **export-filtered**: the recipe's `resources` are passed to
+Synthea's `exporter.fhir.included_resources` so only those types are emitted
+(not every type, then pruned). Synthea force-exports `Patient`/`Encounter`
+regardless, so the prune is retained as a safety net for those siblings. Only
+the recipe's `resources` are kept in the final layout.
 
 ## Benchmark an implementation (the hook route — recommended)
 
@@ -123,9 +127,15 @@ Run it:
 
 ```
 bun run bench:harness run --hook path/to/hook.json <file> --size <s> \
-    [--scenario preloaded_repeated|end_to_end] [--strict] [--jmh <dir>] [--out <report.json>]
+    [--scenario preloaded_repeated|end_to_end] [--strict] [--jmh <dir>] [--out <report.json>] \
+    [--only <ids>] [--exclude <ids>]
 bun run bench:harness exec --hook path/to/hook.json '{"cmd":"capabilities"}'   # debug one command
 ```
+
+`--only condition-flat,encounter-flat` runs just those cases; `--exclude
+us-core-blood-pressures` runs every case but that one. `--exclude` wins over
+`--only` on a conflict, and an id matching no case fails loudly. The same two
+flags work on `bench:bless`.
 
 Because the hook is a stateful HTTP session, you can also drive it by hand
 while developing (spawn it yourself with a `HOOK_PORT`):
@@ -220,9 +230,18 @@ indifferent to the route.
 
 ## Bless (reference implementation only)
 
-`bun run bench:bless -- <file> --size <s>` evaluates each case with the sof-js
-reference engine, analytically cross-checks the counts, and writes the
-committed checkfile. Blessing is not part of the runner contract.
+`bun run bench:bless -- <file> --size <s> [--only <ids>] [--exclude <ids>]`
+evaluates each case with the sof-js reference engine, analytically cross-checks
+the counts, and writes the committed checkfile. Blessing is not part of the
+runner contract. It streams the dataset one resource at a time (summing the
+observed count and the analytic derivation per resource), so bless memory is
+bounded by a single resource and its output rows rather than by the dataset —
+this is what makes the `xl` (100k) tier blessable. The analytic cross-check is a
+count-only row-cardinality derivation over the select tree (nested
+`forEach`/`forEachOrNull`, `unionAll`, sibling-`select` cross-join, view-level
+`where`); a disagreement with the observed count only ever *blocks* a bless, it
+can never write a wrong count. `--only`/`--exclude` bless a subset; unselected
+cases keep their existing assertions.
 
 ## v1 scope
 
@@ -234,7 +253,13 @@ conform to the
 profile — every column carries a `type`, and that `type` must match the FHIR type
 the path returns — so cases run unchanged on strongly-typed engines. The `sof-js`
 reference runner ignores `column.type`, so this is not enforced here; a
-second-runner mismatch (e.g. Pathling) is the signal. Demographic datasets
-are capped at 10k patients (generate-then-prune). Referenced datasets, QR/download
-kinds, referentially-consistent multi-resource datasets, and result checksums are
+second-runner mismatch (e.g. Pathling) is the signal. Purely low-multiplicity
+(demographic-root) datasets are capped at 10k patients — they are row-starved at
+small populations and their larger sizes wait on a download kind. A dataset that
+roots at least one measurement-critical case on a high-multiplicity clinical
+resource (`Condition`, `Observation`, `Encounter`) may exceed that ceiling: for
+example `clinical-wide` declares an `xl` tier of 100k patients, which yields
+millions of rows. `xl` is opt-in per run (`--size xl`) and heavier to generate
+(~10× the `l` tier in time and disk). Referenced datasets, QR/download kinds,
+referentially-consistent multi-resource datasets, and result checksums are
 future extensions. See `../docs/superpowers/specs/2026-06-29-benchmark-subproject-design.md`.
