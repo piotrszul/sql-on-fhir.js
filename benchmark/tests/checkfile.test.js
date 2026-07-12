@@ -162,3 +162,23 @@ test('hashAndCountLines sha256 matches a whole-file hash', () => {
   expect(hashAndCountLines(p).sha256).toBe(whole)
   rmSync(dir, { recursive: true, force: true })
 })
+
+// Both readers stream the file in fixed-size byte chunks (never a whole-file
+// string — an xl resource file exceeds the engine's max string length), so their
+// count/hash must stitch correctly when a newline OR a multibyte UTF-8 character
+// straddles a chunk boundary. Forcing tiny chunk sizes lands both mid-character.
+test('countLines and hashAndCountLines are chunk-boundary correct with tiny chunks', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'chunk-'))
+  const p = join(dir, 'x.ndjson')
+  // café + 😀 are multibyte; the final line has no trailing newline.
+  const content = '{"n":"café"}\n{"n":"😀😀"}\n{"n":"a"}\n{"n":"tail-no-newline"}'
+  writeFileSync(p, content)
+  const wholeHash = createHash('sha256').update(readFileSync(p)).digest('hex')
+  for (const chunkBytes of [1, 2, 3, 5, 7, 64]) {
+    expect(countLines(p, { chunkBytes }), `countLines@${chunkBytes}`).toBe(4)
+    const r = hashAndCountLines(p, { chunkBytes })
+    expect(r.lines, `lines@${chunkBytes}`).toBe(4)
+    expect(r.sha256, `sha256@${chunkBytes}`).toBe(wholeHash)
+  }
+  rmSync(dir, { recursive: true, force: true })
+})

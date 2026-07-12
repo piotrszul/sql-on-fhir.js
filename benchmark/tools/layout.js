@@ -1,6 +1,6 @@
 import { join, dirname, basename } from 'node:path'
 import { createHash } from 'node:crypto'
-import { readFileSync } from 'node:fs'
+import { openSync, readSync, closeSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 // Resolve a filesystem path relative to a module's own location. Always
@@ -12,9 +12,22 @@ export function pathFrom(importMetaUrl, rel) {
 
 // Shared content hash for a materialized file. The checkfile is the authoritative
 // home for per-file sha256; both the checkfile builder and any consumer that needs
-// to compare on-disk bytes use this single implementation.
-export function sha256Of(path) {
-  return createHash('sha256').update(readFileSync(path)).digest('hex')
+// to compare on-disk bytes use this single implementation. It streams the file in
+// fixed-size byte chunks rather than reading it whole, so the harness's checksum
+// verification stays memory-bounded even at the xl (100k) tier where a single
+// resource file can be ~9 GB. `chunkBytes` is injectable only so tests can force
+// many chunk boundaries with small files.
+export function sha256Of(path, { chunkBytes = 1 << 16 } = {}) {
+  const fd = openSync(path, 'r')
+  const hash = createHash('sha256')
+  const buf = Buffer.allocUnsafe(chunkBytes)
+  try {
+    let n
+    while ((n = readSync(fd, buf, 0, buf.length, null)) > 0) hash.update(buf.subarray(0, n))
+  } finally {
+    closeSync(fd)
+  }
+  return hash.digest('hex')
 }
 
 // Dataset identity is the explicit (name, version) pair — human-maintained, NOT a

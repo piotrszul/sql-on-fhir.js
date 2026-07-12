@@ -82,3 +82,17 @@ ordered multi-threaded output — so canonicalisation is required but must be me
 - [x] 12.1 (SP1, MEDIUM) Add a MODIFIED "Reproducible Synthea materialization" delta so the main spec no longer mandates `--generate.thread_count=1`; document memory-bounded canonicalisation + a "no generation thread flag" scenario
 - [x] 12.2 (S1/SP2, LOW) Add `checkfile.test.js` parity tests for `countLines` vs `hashAndCountLines` across empty/unterminated/terminated/single-line files (empty ⇒ 0 for both — the reviewer's "drift to 0 vs 1" was a false positive; the base `countLines` already guards empty) + a sha256 whole-file parity test
 - [x] 12.3 (SP4, INFO) Memoize `normalize(structuredClone(view))` per view object (WeakMap) so bless does not re-normalize once per resource at `xl`; behaviour-preserving (cardinality tests unchanged)
+
+## 13. Memory-bound the harness RUN path (S3 follow-up)
+
+The review (S3) noted D2 bounded materialize + bless but a measurement RUN still
+slurped whole files: `observeResourceCounts`→`countLines`, `verifyChecksums`→
+`sha256Of`, and the reference hook's `loadResources`. Extend streaming to the run
+path so a run (not only a bless) is memory-bounded at `xl`. Output-preserving
+refactor — locked by tiny-`chunkBytes` boundary tests (see D9); no behavioural red.
+
+- [x] 13.1 Add chunk-boundary tests first: `countLines`/`hashAndCountLines` parity with a whole-file hash across tiny `chunkBytes` incl. a multibyte char and a no-trailing-newline final line (`checkfile.test.js`); `sha256Of` streaming parity across tiny chunks + empty file (`layout.test.js`); `loadResources` chunk-boundary + multibyte + blank-line-skip + no-trailing-newline parity (`sof-js/tests/benchmark.test.js`)
+- [x] 13.2 Stream `sha256Of` (chunked hash, `layout.js`); route `countLines` + `hashAndCountLines` through one private `scanFileBytes` chunk loop (`checkfile.js`)
+- [x] 13.3 Stream the hook's `loadResources` via a synchronous `StringDecoder` chunk reader (no whole-file string; hook request handler unchanged, stays sync)
+- [x] 13.4 Add a `benchmark-harness` requirement ("Harness run reads resource files by streaming") + design D9; `openspec validate --strict` green
+- [x] 13.5 Verify: benchmark + sof-js suites green, `bun run validate` + `bun run check-fmt` clean, and the harness e2e run at `s` on `clinical-wide` still reports all 6 cases `verified: true`

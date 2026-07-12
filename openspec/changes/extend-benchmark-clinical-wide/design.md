@@ -175,6 +175,31 @@ peak on a 22 GB dataset). Note `LC_ALL=C sort -S` was also viable (bounded,
 byte-identical) but a pure-JS merge sort avoids a system-binary dependency and
 guarantees the comparator match by construction rather than by BMP-order luck.
 
+### D9. The harness RUN path streams its file reads too (not only bless)
+
+D2 bounded **bless**, but a measurement **run** still had three whole-file reads
+that would trip the same JSC max-string-length ceiling at `xl`: the harness's own
+`observeResourceCounts` (via `countLines`) and `verifyChecksums` (via `sha256Of`),
+plus the reference `sof-js` hook's `loadResources`. All three now read the file in
+fixed-size byte chunks:
+
+- `countLines` and `hashAndCountLines` share one private `scanFileBytes` chunk
+  loop (byte-level newline count, so multibyte-safe by construction).
+- `sha256Of` streams chunks into the hash instead of hashing one whole-file buffer.
+- the hook's `loadResources` stays **synchronous** (so the hook's request handler
+  is untouched) but reads via a `StringDecoder` chunk loop, so a UTF-8 character
+  split across a chunk boundary is reassembled and no whole-file string is ever
+  allocated.
+
+These are **output-preserving** memory refactors — identical counts, hashes and
+parsed arrays — so, like D8's sort, there is no behavioural red to observe; the
+new chunked paths are locked by tiny-`chunkBytes` boundary tests (a newline and a
+multibyte char forced mid-chunk) and by the `xl`-tier byte-identity that already
+holds. The one honest boundary: `preloaded_repeated` requires the hook to hold the
+whole parsed dataset resident between runs, so this bounds the **load**, not the
+resident table — that residency is the scenario's inherent cost, documented rather
+than pretended away.
+
 ## Risks / trade-offs
 
 - **Cardinality edge cases** (`forEachOrNull` empty-row, `unionAll` interplay

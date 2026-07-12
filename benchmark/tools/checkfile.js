@@ -9,38 +9,62 @@ import { datasetDir, resourceFile, sha256Of } from './layout.js'
 // pure data operations (no timing/execution), so they live in the build tooling;
 // the runner composes them with its own timing harness and analytic cross-check.
 
-// The single NDJSON line-count implementation: the checkfile locks these counts
-// under sha256, so every other consumer (e.g. the harness's report
-// resourceCounts) reuses it rather than risking divergent semantics.
-export function countLines(path) {
-  const txt = readFileSync(path, 'utf8')
-  if (txt.length === 0) return 0
-  return txt.endsWith('\n') ? txt.split('\n').length - 1 : txt.split('\n').length
+// Read a file in fixed-size byte chunks, invoking onChunk(buf, n) per read, so no
+// consumer ever holds the whole (potentially xl-sized) file in memory as a single
+// string or buffer — the JS engine's max string length is what OOMs a whole-file
+// read of a ~9 GB resource. `chunkBytes` is injectable only so tests can force
+// many chunk boundaries with small files.
+function scanFileBytes(path, onChunk, chunkBytes = 1 << 16) {
+  const fd = openSync(path, 'r')
+  const buf = Buffer.allocUnsafe(chunkBytes)
+  try {
+    let n
+    while ((n = readSync(fd, buf, 0, buf.length, null)) > 0) onChunk(buf, n)
+  } finally {
+    closeSync(fd)
+  }
 }
 
-// Streaming sha256 + line count in a single pass, reading the file in fixed-size
-// chunks so bless never holds a whole (potentially xl-sized) file in memory. The
-// line count is byte-identical to countLines: a file that does not end in a
-// newline counts its final unterminated line. Used by buildCheckfile so blessing
-// the largest tier stays memory-bounded (benchmark-reference-runner).
-export function hashAndCountLines(path) {
-  const fd = openSync(path, 'r')
-  const hash = createHash('sha256')
-  const buf = Buffer.allocUnsafe(1 << 16)
+// Count NDJSON lines by streaming the file and counting newline bytes, so the
+// count derives from the same byte-level rule as hashAndCountLines: a file that
+// does not end in a newline counts its final unterminated line, and an empty file
+// counts zero. The checkfile locks these counts under sha256, so every other
+// consumer (e.g. the harness's report resourceCounts) reuses this single
+// implementation rather than risking divergent semantics.
+export function countLines(path, { chunkBytes } = {}) {
   let total = 0
   let newlines = 0
   let lastByte = -1
-  try {
-    let n
-    while ((n = readSync(fd, buf, 0, buf.length, null)) > 0) {
+  scanFileBytes(
+    path,
+    (buf, n) => {
+      for (let i = 0; i < n; i++) if (buf[i] === 10) newlines++
+      lastByte = buf[n - 1]
+      total += n
+    },
+    chunkBytes,
+  )
+  return total === 0 ? 0 : lastByte === 10 ? newlines : newlines + 1
+}
+
+// Streaming sha256 + line count in a single pass over the same fixed-size chunks,
+// so blessing the largest tier stays memory-bounded (benchmark-reference-runner).
+// The line count is byte-identical to countLines.
+export function hashAndCountLines(path, { chunkBytes } = {}) {
+  const hash = createHash('sha256')
+  let total = 0
+  let newlines = 0
+  let lastByte = -1
+  scanFileBytes(
+    path,
+    (buf, n) => {
       hash.update(buf.subarray(0, n))
       for (let i = 0; i < n; i++) if (buf[i] === 10) newlines++
       lastByte = buf[n - 1]
       total += n
-    }
-  } finally {
-    closeSync(fd)
-  }
+    },
+    chunkBytes,
+  )
   const lines = total === 0 ? 0 : lastByte === 10 ? newlines : newlines + 1
   return { sha256: hash.digest('hex'), lines }
 }
