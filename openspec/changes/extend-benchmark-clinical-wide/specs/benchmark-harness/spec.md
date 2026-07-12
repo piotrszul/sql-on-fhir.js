@@ -27,19 +27,27 @@ NOT appear and SHALL NOT be prepared or measured.
 - **WHEN** `--only no-such-case` names a case that does not exist
 - **THEN** the run fails with an error naming the unknown id and measures nothing
 
-### Requirement: Harness run reads resource files by streaming
+### Requirement: Harness run streams its file reads and writes
 
-The harness `run` path SHALL compute the per-resource line counts it reports and
-verify the checkfile's per-file sha256 checksums by streaming each resource file
-in fixed-size byte chunks, never reading a whole resource file into memory as one
-string or buffer. This keeps a measurement run — not only a bless — memory-bounded
-at the largest tiers, where a single resource file can exceed the JS engine's
-maximum string length (an ~9 GB `xl` file cannot be read as one string at all).
-The reference `sof-js` hook SHALL likewise ingest a resource file by reading it in
-chunks so that loading never allocates a whole-file string; the parsed in-memory
-table the `preloaded_repeated` scenario keeps resident between runs is inherent to
-that scenario and is out of scope for this bound (it bounds the LOAD, not the
-resident dataset).
+The harness `run` path SHALL stream every whole-file interaction on both the input
+and output sides in fixed-size chunks, never holding a whole resource file or a
+whole output CSV in memory as one string or buffer. This keeps a measurement run —
+not only a bless — memory-bounded at the largest tiers, where a single file can
+exceed the JS engine's maximum string length (an ~9 GB `xl` resource file cannot
+be read as one string at all, and a wide result's CSV can hit the same ceiling
+even when the row objects fit).
+
+On the INPUT side: the harness SHALL compute the per-resource line counts it
+reports and verify the checkfile's per-file sha256 checksums by streaming each
+resource file in chunks, and the reference `sof-js` hook SHALL ingest a resource
+file by reading it in chunks so loading never allocates a whole-file string. On
+the OUTPUT side: the harness SHALL count the output CSV's data rows by streaming
+it in chunks (carrying RFC-4180 quote state across chunk boundaries), and the
+reference hook SHALL write the output CSV by streaming its rows to disk rather than
+building the whole CSV as one string. The parsed in-memory dataset the
+`preloaded_repeated` scenario keeps resident, and the result-row array the
+non-streaming `evaluate()` returns, are inherent to the engine and out of scope for
+this bound — it bounds the LOAD, the COUNT and the WRITE, not the resident tables.
 
 #### Scenario: Observing resource counts streams the file
 
@@ -60,3 +68,16 @@ resident dataset).
 - **THEN** it reads and parses the file in chunks so loading never allocates a
   whole-file string, even though the parsed table it then holds resident is the
   `preloaded_repeated` scenario's inherent cost
+
+#### Scenario: Counting output rows streams the CSV
+
+- **WHEN** the harness counts the data rows of a run's output CSV to verify it
+- **THEN** the count is obtained by streaming the CSV in chunks with RFC-4180 quote
+  state carried across boundaries, never by reading the whole CSV into one string
+
+#### Scenario: The reference hook writes the output CSV by streaming
+
+- **WHEN** the `sof-js` hook writes the result CSV for a run
+- **THEN** it streams the rows to disk through a bounded buffer, byte-identically to
+  the whole-string serializer, so a wide result's CSV is never held as one
+  whole-file string

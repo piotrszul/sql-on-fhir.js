@@ -60,6 +60,22 @@ test('escaped double quotes inside a quoted field are handled', () => {
   rmSync(dir, { recursive: true, force: true })
 })
 
+// countCsvRows streams the output CSV in fixed-size byte chunks (a wide xl
+// result's CSV can exceed the engine's max string length), so the RFC-4180 quote
+// state — which decides whether a newline is a row boundary or quoted content —
+// must carry across chunk boundaries. Forcing tiny chunk sizes lands boundaries
+// inside a quoted field, between the two quotes of an escaped `""`, and mid
+// multibyte character.
+test('countCsvRows is chunk-boundary correct with tiny chunks', () => {
+  const content = 'id,note\n1,"line one\nline two"\n2,"say ""hi""\ncafé 😀"\n3,plain'
+  const { path, dir } = csvFile(content)
+  expect(countCsvRows(path)).toBe(3) // whole-file reference
+  for (const chunkBytes of [1, 2, 3, 5, 7, 64]) {
+    expect(countCsvRows(path, { chunkBytes }), `chunk ${chunkBytes}`).toBe(3)
+  }
+  rmSync(dir, { recursive: true, force: true })
+})
+
 test('statsOf computes the defined basic-statistics shape', () => {
   const s = statsOf([2, 4, 6])
   expect(s.min).toBe(2)

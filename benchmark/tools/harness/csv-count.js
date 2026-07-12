@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { openSync, readSync, closeSync } from 'node:fs'
 
 // Count the DATA rows of a written CSV file — the harness-derived output row
 // count that feeds the work-verification guard, independent of whatever the
@@ -7,19 +7,39 @@ import { readFileSync } from 'node:fs'
 // state machine handles naturally, since the closing and reopening quote toggle
 // the state twice). An empty file is an empty result (the shared serializer
 // emits no header for zero rows); otherwise the first line is the header.
-export function countCsvRows(path) {
-  const txt = readFileSync(path, 'utf8')
-  if (txt.length === 0) return 0
+//
+// The file is scanned in fixed-size byte chunks with the quote state carried
+// across chunk boundaries, so a wide result's CSV is never held as one whole-file
+// string (which at the xl tier can exceed the engine's max string length). `"`
+// (0x22) and `\n` (0x0A) are single-byte ASCII that never occur as UTF-8
+// continuation bytes, so byte-level scanning is multibyte-safe. `chunkBytes` is
+// injectable only so tests can force many chunk boundaries with small files.
+export function countCsvRows(path, { chunkBytes = 1 << 16 } = {}) {
+  const fd = openSync(path, 'r')
+  const buf = Buffer.allocUnsafe(chunkBytes)
   let boundaries = 0
   let inQuotes = false
-  for (let i = 0; i < txt.length; i++) {
-    const ch = txt[i]
-    if (ch === '"') inQuotes = !inQuotes
-    else if (ch === '\n' && !inQuotes) boundaries++
+  let total = 0
+  let lastByte = -1
+  try {
+    let n
+    while ((n = readSync(fd, buf, 0, buf.length, null)) > 0) {
+      for (let i = 0; i < n; i++) {
+        const b = buf[i]
+        if (b === 34)
+          inQuotes = !inQuotes // '"'
+        else if (b === 10 && !inQuotes) boundaries++ // '\n'
+      }
+      lastByte = buf[n - 1]
+      total += n
+    }
+  } finally {
+    closeSync(fd)
   }
+  if (total === 0) return 0
   // A trailing newline terminates the last row rather than starting a new one.
   // (At a well-formed EOF quotes are always balanced, so the final `\n` — if any
   // — is necessarily an unquoted row boundary already counted above.)
-  const lines = txt.endsWith('\n') ? boundaries : boundaries + 1
+  const lines = lastByte === 10 ? boundaries : boundaries + 1
   return Math.max(0, lines - 1)
 }

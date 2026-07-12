@@ -200,6 +200,24 @@ whole parsed dataset resident between runs, so this bounds the **load**, not the
 resident table — that residency is the scenario's inherent cost, documented rather
 than pretended away.
 
+The **output** side of a run has the same shape (re-review, LOW). The harness's own
+`countCsvRows` read the whole output CSV with `readFileSync`, and the hook wrote it
+via one `serializeCsv` string — both of which a wide `xl` view's CSV could push past
+the string ceiling even when the row objects fit. Both now stream:
+
+- `countCsvRows` (`csv-count.js`) scans the CSV in byte chunks, carrying RFC-4180
+  quote state across chunk boundaries; `"` (0x22) and `\n` (0x0A) never occur as
+  UTF-8 continuation bytes, so byte-level scanning is multibyte-safe.
+- `serializeCsv` is refactored onto a `csvLines` generator (one source of the CSV
+  shape) so a new `writeCsvFile` can stream rows to disk through a bounded buffer,
+  **byte-identical** to `serializeCsv` + `writeFileSync`. The hook uses
+  `writeCsvFile`; `serializeCsv` keeps its whole-string API for the server
+  `$run`/SQL path. `writeCsvFile` is synchronous, so the hook's request handler
+  stays sync. Same honest boundary as the load: this bounds the **write**, while
+  the result-row array the non-streaming `evaluate()` returns is still resident —
+  making the engine's *output* streaming (a generator `evaluate`) is a separate,
+  larger change, out of scope here.
+
 ## Risks / trade-offs
 
 - **Cardinality edge cases** (`forEachOrNull` empty-row, `unionAll` interplay
