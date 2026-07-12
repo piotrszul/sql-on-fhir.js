@@ -76,3 +76,9 @@ ordered multi-threaded output — so canonicalisation is required but must be me
 - [x] 11.2 Implement `benchmark/tools/external-sort.js`: external merge sort (bounded runs + heap k-way merge), same ordinal comparator, streaming I/O with backpressure
 - [x] 11.3 Wire `canonicaliseNdjson` → `sortFileLines`; confirm `clinical-flat` `s`/`m` bytes unchanged (no re-bless) and `xl` materializes without OOM
 - [x] 11.4 Remove the inert `--generate.thread_count=1` flag + correct its comment (TDD: executor test asserts no thread flag)
+
+## 12. Review follow-ups (PR #33)
+
+- [x] 12.1 (SP1, MEDIUM) Add a MODIFIED "Reproducible Synthea materialization" delta so the main spec no longer mandates `--generate.thread_count=1`; document memory-bounded canonicalisation + a "no generation thread flag" scenario
+- [x] 12.2 (S1/SP2, LOW) Add `checkfile.test.js` parity tests for `countLines` vs `hashAndCountLines` across empty/unterminated/terminated/single-line files (empty ⇒ 0 for both — the reviewer's "drift to 0 vs 1" was a false positive; the base `countLines` already guards empty) + a sha256 whole-file parity test
+- [x] 12.3 (SP4, INFO) Memoize `normalize(structuredClone(view))` per view object (WeakMap) so bless does not re-normalize once per resource at `xl`; behaviour-preserving (cardinality tests unchanged)

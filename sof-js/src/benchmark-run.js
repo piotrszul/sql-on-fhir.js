@@ -65,11 +65,24 @@ function countRows(nnode, node, def, envVars) {
   }
 }
 
+// Normalizing a view is a pure function of the view object, but bless calls
+// cardinality() once per resource (millions of times at xl). Memoize the
+// normalized tree per view object so the structuredClone + normalize runs once,
+// not once per resource. Keyed weakly so it never keeps a view alive.
+const normalizedViews = new WeakMap()
+function normalizedView(view) {
+  let normal = normalizedViews.get(view)
+  if (!normal) {
+    normal = normalize(structuredClone(view))
+    normalizedViews.set(view, normal)
+  }
+  return normal
+}
+
 // The row count evaluate() would produce for a single resource, derived
 // analytically. Σ cardinality(view, r) over the dataset === evaluate(view, all).length.
 export function cardinality(view, resource) {
-  const normal = normalize(structuredClone(view))
-  return countRows(normal, resource, view, { rowIndex: 0 })
+  return countRows(normalizedView(view), resource, view, { rowIndex: 0 })
 }
 
 // Bless mode WRITES THE CHECKFILE (counts, checksums, assertions), never the

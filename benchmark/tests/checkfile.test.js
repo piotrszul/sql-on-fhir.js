@@ -11,6 +11,8 @@ import {
   readCheckfile,
   assertionFor,
   verifyChecksums,
+  countLines,
+  hashAndCountLines,
 } from '../tools/checkfile.js'
 
 const validate = new Ajv({ strict: false }).compile(schema)
@@ -127,4 +129,36 @@ test('verifyChecksums surfaces drift when a file changes by a byte', () => {
   const drift = verifyChecksums({ dataRoot, checkfile: cf, size: 's' })
   expect(drift.some((d) => d.includes('Condition.ndjson'))).toBe(true)
   rmSync(dataRoot, { recursive: true, force: true })
+})
+
+// The streaming hashAndCountLines and the whole-file countLines lock the SAME
+// counts (the checkfile's resourceCounts and the harness's report counts must
+// never disagree), so pin their parity across the edge cases the prose comment
+// claims: an empty file, a file with no trailing newline, and a normal one.
+test('countLines and hashAndCountLines agree across line-ending edge cases', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'linecount-'))
+  const cases = [
+    ['empty', '', 0],
+    ['unterminated', '{"a":1}\n{"a":2}', 2],
+    ['terminated', '{"a":1}\n{"a":2}\n', 2],
+    ['single-no-newline', '{"a":1}', 1],
+    ['single-newline', '{"a":1}\n', 1],
+  ]
+  for (const [name, content, expected] of cases) {
+    const p = join(dir, `${name}.ndjson`)
+    writeFileSync(p, content)
+    expect(countLines(p), `countLines(${name})`).toBe(expected)
+    expect(hashAndCountLines(p).lines, `hashAndCountLines(${name})`).toBe(expected)
+  }
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('hashAndCountLines sha256 matches a whole-file hash', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'linehash-'))
+  const content = '{"a":1}\n{"a":2}\n{"a":3}\n'
+  const p = join(dir, 'x.ndjson')
+  writeFileSync(p, content)
+  const whole = createHash('sha256').update(content).digest('hex')
+  expect(hashAndCountLines(p).sha256).toBe(whole)
+  rmSync(dir, { recursive: true, force: true })
 })
