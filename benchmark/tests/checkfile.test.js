@@ -11,6 +11,8 @@ import {
   readCheckfile,
   assertionFor,
   verifyChecksums,
+  countLines,
+  hashAndCountLines,
 } from '../tools/checkfile.js'
 
 const validate = new Ajv({ strict: false }).compile(schema)
@@ -127,4 +129,56 @@ test('verifyChecksums surfaces drift when a file changes by a byte', () => {
   const drift = verifyChecksums({ dataRoot, checkfile: cf, size: 's' })
   expect(drift.some((d) => d.includes('Condition.ndjson'))).toBe(true)
   rmSync(dataRoot, { recursive: true, force: true })
+})
+
+// The streaming hashAndCountLines and the whole-file countLines lock the SAME
+// counts (the checkfile's resourceCounts and the harness's report counts must
+// never disagree), so pin their parity across the edge cases the prose comment
+// claims: an empty file, a file with no trailing newline, and a normal one.
+test('countLines and hashAndCountLines agree across line-ending edge cases', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'linecount-'))
+  const cases = [
+    ['empty', '', 0],
+    ['unterminated', '{"a":1}\n{"a":2}', 2],
+    ['terminated', '{"a":1}\n{"a":2}\n', 2],
+    ['single-no-newline', '{"a":1}', 1],
+    ['single-newline', '{"a":1}\n', 1],
+  ]
+  for (const [name, content, expected] of cases) {
+    const p = join(dir, `${name}.ndjson`)
+    writeFileSync(p, content)
+    expect(countLines(p), `countLines(${name})`).toBe(expected)
+    expect(hashAndCountLines(p).lines, `hashAndCountLines(${name})`).toBe(expected)
+  }
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('hashAndCountLines sha256 matches a whole-file hash', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'linehash-'))
+  const content = '{"a":1}\n{"a":2}\n{"a":3}\n'
+  const p = join(dir, 'x.ndjson')
+  writeFileSync(p, content)
+  const whole = createHash('sha256').update(content).digest('hex')
+  expect(hashAndCountLines(p).sha256).toBe(whole)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+// Both readers stream the file in fixed-size byte chunks (never a whole-file
+// string — an xl resource file exceeds the engine's max string length), so their
+// count/hash must stitch correctly when a newline OR a multibyte UTF-8 character
+// straddles a chunk boundary. Forcing tiny chunk sizes lands both mid-character.
+test('countLines and hashAndCountLines are chunk-boundary correct with tiny chunks', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'chunk-'))
+  const p = join(dir, 'x.ndjson')
+  // café + 😀 are multibyte; the final line has no trailing newline.
+  const content = '{"n":"café"}\n{"n":"😀😀"}\n{"n":"a"}\n{"n":"tail-no-newline"}'
+  writeFileSync(p, content)
+  const wholeHash = createHash('sha256').update(readFileSync(p)).digest('hex')
+  for (const chunkBytes of [1, 2, 3, 5, 7, 64]) {
+    expect(countLines(p, { chunkBytes }), `countLines@${chunkBytes}`).toBe(4)
+    const r = hashAndCountLines(p, { chunkBytes })
+    expect(r.lines, `lines@${chunkBytes}`).toBe(4)
+    expect(r.sha256, `sha256@${chunkBytes}`).toBe(wholeHash)
+  }
+  rmSync(dir, { recursive: true, force: true })
 })

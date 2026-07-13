@@ -2,20 +2,18 @@ import { mkdtempSync, mkdirSync, existsSync, readFileSync, writeFileSync, rmSync
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { datasetDir, manifestFile, recipeOf } from './layout.js'
+import { sortFileLines } from './external-sort.js'
 
 // Synthea's bulk export emits the same resources in a non-deterministic LINE ORDER
-// across runs (--generate.thread_count=1 pins generation, not export iteration order),
-// so the raw NDJSON is only SORTED-identical, not byte-identical. Canonicalise by
-// sorting lines lexicographically (ordinal, locale-independent) so the persisted
-// bytes — and their sha256 — are stable across environments, which is what the
-// checkfile locks. localeCompare is intentionally avoided: it is locale-dependent
-// and would defeat cross-environment reproducibility.
+// across runs (multi-threaded generators export patients as they finish, and no
+// generator flag serialises that), so the raw NDJSON is only SORTED-identical, not
+// byte-identical. Canonicalise by an ordinal (locale-independent) line sort so the
+// persisted bytes — and their sha256 — are stable across environments, which is
+// what the checkfile locks. The sort is a memory-bounded external merge sort
+// (external-sort.js), so even the largest tiers canonicalise without ever loading
+// the whole (multi-GB) file into memory. Returns the line count.
 function canonicaliseNdjson(src, dst) {
-  const txt = readFileSync(src, 'utf8')
-  const lines = txt.split('\n').filter((l) => l.length > 0)
-  lines.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
-  writeFileSync(dst, lines.length ? lines.join('\n') + '\n' : '')
-  return lines.length
+  return sortFileLines(src, dst)
 }
 
 export async function materialize({ dataset, size, dataRoot, executor, force = false }) {
@@ -42,7 +40,7 @@ export async function materialize({ dataset, size, dataRoot, executor, force = f
       const src = join(staging, `${r}.ndjson`)
       if (!existsSync(src)) throw new Error(`executor did not produce ${r}.ndjson`)
       const dst = join(dir, `${r}.ndjson`)
-      counts[r] = canonicaliseNdjson(src, dst)
+      counts[r] = await canonicaliseNdjson(src, dst)
     }
     // Per-file sha256 lives in the checkfile (the authoritative lock); the manifest
     // records only identity, population, per-file row counts, and a timestamp.

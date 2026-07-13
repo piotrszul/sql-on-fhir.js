@@ -1,0 +1,135 @@
+{
+  "dataset": {
+    "name": "synthea-clinical-wide",
+    "version": "1"
+  },
+  "syntheaVersion": "3.2.0",
+  "sizes": {
+    "s": {
+      "resourceCounts": {
+        "Patient": 125,
+        "Encounter": 7808,
+        "Condition": 6406,
+        "Observation": 10085
+      },
+      "files": {
+        "Patient.ndjson": {
+          "sha256": "2d08f485a2c6c3d240f6325ef1bf6b6fc62b443fba8315fd18cf70149182fe56"
+        },
+        "Encounter.ndjson": {
+          "sha256": "876a9437a77de09c02aae7c128ca91a6915af7820da529564119a964e7c91ca4"
+        },
+        "Condition.ndjson": {
+          "sha256": "1376a94d5cedfdd7fa45fe318fb084a7f665349fde1e8d796c8dd0cfe63f1221"
+        },
+        "Observation.ndjson": {
+          "sha256": "e7332cd9b3152a99fd8cf424cd5ed86a8db2fcb9705cd71a518b7b0ef438bee1"
+        }
+      }
+    },
+    "m": {
+      "resourceCounts": {
+        "Patient": 1178,
+        "Encounter": 62267,
+        "Condition": 48908,
+        "Observation": 100607
+      },
+      "files": {
+        "Patient.ndjson": {
+          "sha256": "537317225762ea83125e68d374107284492abe1e9ac4f4293491d5015a37d5c1"
+        },
+        "Encounter.ndjson": {
+          "sha256": "4aa742cbe250f845cfb192bfdbdc6bb58e968cae5cba0c5e40ea53455b22cb53"
+        },
+        "Condition.ndjson": {
+          "sha256": "73673404e1ac96e035e2a72edb70a77f806c28a3caf9792c9792f05611545278"
+        },
+        "Observation.ndjson": {
+          "sha256": "7cf68514eb90d16d1b6aefd3248b7365c4cb336951f8b80b448c3d0ee407ceb0"
+        }
+      }
+    },
+    "l": {
+      "resourceCounts": {
+        "Patient": 11853,
+        "Encounter": 598548,
+        "Condition": 459617,
+        "Observation": 1004979
+      },
+      "files": {
+        "Patient.ndjson": {
+          "sha256": "e8f368b62ce78cb4fb4abb4af21126c66b4537d942e3eb676d5a2ea9f6715664"
+        },
+        "Encounter.ndjson": {
+          "sha256": "56d6a2995ccf2e5c57227f1d8531d4f4035c35a46f0be5b80905d039b9a4ae90"
+        },
+        "Condition.ndjson": {
+          "sha256": "0a0f75f7f2a13fcae3fbbd3034b6bc495a1c066c9487e1421c3df570b24eb430"
+        },
+        "Observation.ndjson": {
+          "sha256": "0d32109b6a1680033b3c9623aad64aad0c16b0f765125e679fcbf702163f4402"
+        }
+      }
+    },
+    "xl": {
+      "resourceCounts": {
+        "Patient": 117861,
+        "Encounter": 5934325,
+        "Condition": 4542134,
+        "Observation": 9937213
+      },
+      "files": {
+        "Patient.ndjson": {
+          "sha256": "c5d5f21b39b46ad3f23f9f7381783d6d86485fedc73c4736791ec42e361a47dc"
+        },
+        "Encounter.ndjson": {
+          "sha256": "15440b1ae4d38feb88211a89b7fc72fbb553f865066966c5aa686b5c30bc6b61"
+        },
+        "Condition.ndjson": {
+          "sha256": "d0b4f9d131bb2211798968ce1dfe9b5e23cfceaa086bf282b09471c478fe7158"
+        },
+        "Observation.ndjson": {
+          "sha256": "6d9b6999d72f20106c5b846a5dd7fe180cf623ff53bff72baf4b632ed4efe70a"
+        }
+      }
+    }
+  },
+  "assertions": {
+    "condition-flat": {
+      "s": 6406,
+      "m": 48908,
+      "l": 459617,
+      "xl": 4542134
+    },
+    "encounter-flat": {
+      "s": 7808,
+      "m": 62267,
+      "l": 598548,
+      "xl": 5934325
+    },
+    "patient-addresses": {
+      "s": 125,
+      "m": 1178,
+      "l": 11853,
+      "xl": 117861
+    },
+    "patient-and-contact-addresses": {
+      "s": 125,
+      "m": 1178,
+      "l": 11853,
+      "xl": 117861
+    },
+    "patient-demographics": {
+      "s": 125,
+      "m": 1178,
+      "l": 11853,
+      "xl": 117861
+    },
+    "us-core-blood-pressures": {
+      "s": 229,
+      "m": 2439,
+      "l": 26100,
+      "xl": 253943
+    }
+  }
+}

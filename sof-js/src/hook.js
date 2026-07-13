@@ -5,11 +5,10 @@
 // ({"ok":false,"error":...}) with a 2xx status. The harness owns all timing;
 // the phasesMs this hook reports are advisory diagnostics.
 
-import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { evaluate } from './index.js'
 import { loadResources } from './benchmark.js'
-import { serializeCsv } from './csv.js'
+import { writeCsvFile } from './csv.js'
 
 let prepared = {} // resourceType -> parsed resources
 
@@ -32,7 +31,7 @@ function handle(name, body) {
       const t0 = performance.now()
       const rows = evaluate(body.view, prepared[body.view.resource])
       const t1 = performance.now()
-      writeFileSync(body.outCsv, serializeCsv(rows))
+      writeCsvFile(body.outCsv, rows)
       const t2 = performance.now()
       return {
         ok: true,

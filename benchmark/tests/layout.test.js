@@ -1,6 +1,18 @@
 import { test, expect } from 'bun:test'
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import * as layout from '../tools/layout.js'
-import { datasetDir, resourceFile, manifestFile, checkfileFor, recipeOf, pathFrom } from '../tools/layout.js'
+import {
+  datasetDir,
+  resourceFile,
+  manifestFile,
+  checkfileFor,
+  recipeOf,
+  pathFrom,
+  sha256Of,
+} from '../tools/layout.js'
 
 test('pathFrom decodes percent-encoded module URLs into real filesystem paths', () => {
   // A repo checked out under a directory with a space must not yield a %20 path.
@@ -27,6 +39,24 @@ test('distinct versions and sizes occupy distinct directories', () => {
 
 test('checkfileFor resolves the sibling checkfile by benchmark file basename', () => {
   expect(checkfileFor('/bench/clinical-flat.json')).toBe('/bench/clinical-flat.check.json')
+})
+
+// sha256Of hashes the file by streaming it in fixed-size byte chunks so the
+// harness's checksum verification never buffers a whole (potentially xl-sized)
+// resource file in memory. Its digest must equal a whole-file hash regardless of
+// where the chunk boundaries fall.
+test('sha256Of streams and matches a whole-file hash across chunk boundaries', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'sha-'))
+  const p = join(dir, 'x.bin')
+  writeFileSync(p, 'café 😀😀 tail-bytes')
+  const whole = createHash('sha256').update(readFileSync(p)).digest('hex')
+  for (const chunkBytes of [1, 2, 3, 5, 64]) {
+    expect(sha256Of(p, { chunkBytes }), `sha256@${chunkBytes}`).toBe(whole)
+  }
+  const empty = join(dir, 'empty.bin')
+  writeFileSync(empty, '')
+  expect(sha256Of(empty)).toBe(createHash('sha256').update(Buffer.alloc(0)).digest('hex'))
+  rmSync(dir, { recursive: true, force: true })
 })
 
 test('recipeOf strips name/version/sizes/defaultSize/syntheaVersion and keeps recipe params', () => {
