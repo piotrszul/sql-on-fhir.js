@@ -66,6 +66,21 @@ so no dishonest cold number can ever be emitted. The contract's reset/scenario
 requirements needed no change; the Spark-server case is precisely the case they
 were written for.
 
+Worth stating precisely, because the omission SHALL invites a stricter reading
+(finding 10): the reset requirement is honoured here _observably_ even though
+the adapter's `reset` is a no-op. What it SHALL do is make a subsequent
+`prepare` re-do the full ingest — and this adapter's `prepare` overwrites
+unconditionally (finding 3), re-ingesting every time regardless of `reset`, so
+the _Prepare after reset re-does ingest work_ scenario passes. What a Spark
+server cannot do is the requirement's SHOULD — _clear engine-managed caches_ —
+over REST, and that, not any failure to discard data, is why `end_to_end` is
+omitted in connect mode: its per-sample timing depends on cache-cold, which the
+unclearable caches deny. `preloaded_repeated` does not depend on it — the
+harness drives it with a single untimed pre-`prepare` hygiene `reset`
+(`runner.js`), times only the warm `run`, and carries data-correctness through
+`prepare`'s overwrite — so the no-op `reset` distorts nothing and declaring the
+scenario is honest.
+
 ## 3. "A second `prepare` REPLACES the prepared dataset" is implementable — **no contract change (contract validated)**
 
 `$import` with `saveMode: overwrite` deletes all existing resources of the
@@ -187,6 +202,29 @@ centrally for all hooks. Not forced now — no observed run was mislabelled — 
 this is recorded as an observation, with the contract-gap fix left for a future
 cycle to weigh, rather than a change forced here.
 
+## 10. The reset-omission SHALL conflates "discard data" with "return to cold" — **doc gap**
+
+`benchmark-hook-format`'s _Reset discards prepared state_ closes with: "A hook
+whose deployment cannot honour reset semantics SHALL omit from `capabilities`
+any scenario the harness would drive with `reset` for that lifecycle mode." Read
+literally, that is too broad for a caching server. The harness drives `reset` in
+_both_ scenarios — an untimed pre-`prepare` hygiene call in `preloaded_repeated`
+and a per-sample cold-reset in `end_to_end` (`runner.js`) — so "any scenario the
+harness would drive with `reset`" sweeps in `preloaded_repeated`, and a strict
+implementer of a server that cannot clear caches over REST (like this one) would
+wrongly omit it. The intent only reaches scenarios whose _timing_ depends on
+`reset` returning the engine to cold (`end_to_end`); the wording conflates two
+capabilities a Spark server separates — discarding prepared _data_ (which
+`prepare`'s overwrite already provides, finding 3) versus returning to
+engine-_cold_ (the requirement's SHOULD, which no REST call offers).
+
+The fix is a wording tightening in `benchmark-hook-format`: scope the omission to
+scenarios that depend on `reset` for coldness, or split the SHALL (discard) from
+the SHOULD (cache-clear) in the omission trigger — no behavioural change to the
+reference, the harness, or any hook. Recorded here, not applied: no observed run
+was mismeasured (finding 2 shows the shipped declarations are honest), and the
+spec edit belongs to the teardown change that owns `benchmark-hook-format`.
+
 ## Pass record
 
 All runs `--strict` (materialized data verified against the checkfile sha256
@@ -212,14 +250,20 @@ pass clean — 6406 / 4366 checkfile-exact, reports valid against
 containers. The live server reported engine version `2.0.1+78a3f75`, matching
 the manifest, so the drift check (finding 9) stayed silent.
 
-No tool defect, no benchmark-case defect, **and no contract change of any kind
-was forced** — every spec-stress point the design raised (reset honesty,
-prepare-replaces, `preloaded_repeated` warmth, expensive-startup readiness) was
-answered by the contract as it already stands. This is the deep protocol test
-passing clean: a strong signal that the benchmark contract's HTTP-hook,
-lifecycle-mode, and scenario-honesty requirements are correct and implementable
-against a real, independent, Spark-backed server. The teardown change owns
-whether this constitutes the exercise's "quiet round" exit criterion.
+No tool defect and no benchmark-case defect. Every spec-stress point the design
+raised (reset honesty, prepare-replaces, `preloaded_repeated` warmth,
+expensive-startup readiness) was answered by the contract's _behaviour_ as it
+already stands — no schema, harness, or reference-behaviour change was forced.
+The single exception is a **documentation** finding (finding 10): the
+reset-omission SHALL's wording is broader than its intent and should be
+tightened, a one-line spec clarification with no behavioural or capability
+change. So this is a clean deep-protocol pass — a strong signal that the
+benchmark contract's HTTP-hook, lifecycle-mode, and scenario-honesty
+requirements are correct and implementable against a real, independent,
+Spark-backed server — but not a perfectly _quiet_ round: it surfaced one
+doc-gap. The teardown change owns both the `benchmark-hook-format` wording edit
+and whether a lone doc-gap still meets the exercise's "quiet round" exit
+criterion.
 
 ### Timing (Apple M-series, Docker, 5 samples/case)
 
