@@ -1,0 +1,7 @@
+{
+  "endpoint": "http://127.0.0.1:9797",
+  "implementation": {
+    "engine": { "name": "Pathling", "version": "2.0.1+78a3f75" },
+    "variant": "server-connect"
+  }
+}
