@@ -19,22 +19,34 @@ export function loadResources(ndjsonPath, { chunkBytes = 1 << 16 } = {}) {
   const decoder = new StringDecoder('utf8')
   const buf = Buffer.allocUnsafe(chunkBytes)
   const out = []
-  let carry = ''
+  const pending = [] // decoded pieces of the current, not-yet-terminated line
   const parseLine = (line) => {
     if (line.trim().length > 0) out.push(JSON.parse(line))
   }
   try {
     let n
     while ((n = readSync(fd, buf, 0, buf.length, null)) > 0) {
+      const chunk = buf.subarray(0, n)
       // StringDecoder holds back an incomplete trailing multibyte sequence until
       // the bytes completing it arrive in a later chunk, so a UTF-8 character
-      // split across a chunk boundary is never corrupted.
-      const parts = (carry + decoder.write(buf.subarray(0, n))).split('\n')
-      carry = parts.pop() // the last part is an unterminated line; hold it back
+      // split across a chunk boundary is never corrupted. Held-back bytes are
+      // never '\n' (0x0A cannot occur inside a multibyte sequence), so probing
+      // the raw chunk for a newline is exact — a chunk without one just
+      // accumulates its decoded text, and a line spanning k chunks is joined
+      // once when its newline arrives, not re-scanned on every chunk.
+      const text = decoder.write(chunk)
+      if (chunk.indexOf(10) === -1) {
+        if (text.length > 0) pending.push(text)
+        continue
+      }
+      const parts = (pending.length > 0 ? pending.join('') + text : text).split('\n')
+      pending.length = 0
+      const tail = parts.pop() // the last part is an unterminated line; hold it back
+      if (tail.length > 0) pending.push(tail)
       for (const line of parts) parseLine(line)
     }
-    carry += decoder.end()
-    parseLine(carry)
+    pending.push(decoder.end())
+    parseLine(pending.join(''))
   } finally {
     closeSync(fd)
   }

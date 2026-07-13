@@ -1,4 +1,4 @@
-import { openSync, readSync, closeSync } from 'node:fs'
+import { scanFileBytes } from '../layout.js'
 
 // Count the DATA rows of a written CSV file — the harness-derived output row
 // count that feeds the work-verification guard, independent of whatever the
@@ -8,22 +8,21 @@ import { openSync, readSync, closeSync } from 'node:fs'
 // the state twice). An empty file is an empty result (the shared serializer
 // emits no header for zero rows); otherwise the first line is the header.
 //
-// The file is scanned in fixed-size byte chunks with the quote state carried
-// across chunk boundaries, so a wide result's CSV is never held as one whole-file
-// string (which at the xl tier can exceed the engine's max string length). `"`
-// (0x22) and `\n` (0x0A) are single-byte ASCII that never occur as UTF-8
-// continuation bytes, so byte-level scanning is multibyte-safe. `chunkBytes` is
-// injectable only so tests can force many chunk boundaries with small files.
-export function countCsvRows(path, { chunkBytes = 1 << 16 } = {}) {
-  const fd = openSync(path, 'r')
-  const buf = Buffer.allocUnsafe(chunkBytes)
+// The file is scanned in fixed-size byte chunks (scanFileBytes) with the quote
+// state carried across chunk boundaries, so a wide result's CSV is never held as
+// one whole-file string (which at the xl tier can exceed the engine's max string
+// length). `"` (0x22) and `\n` (0x0A) are single-byte ASCII that never occur as
+// UTF-8 continuation bytes, so byte-level scanning is multibyte-safe; the
+// per-byte loop (unlike the checkfile's memchr-based line tally) is inherent to
+// tracking quote state.
+export function countCsvRows(path, { chunkBytes } = {}) {
   let boundaries = 0
   let inQuotes = false
   let total = 0
   let lastByte = -1
-  try {
-    let n
-    while ((n = readSync(fd, buf, 0, buf.length, null)) > 0) {
+  scanFileBytes(
+    path,
+    (buf, n) => {
       for (let i = 0; i < n; i++) {
         const b = buf[i]
         if (b === 34)
@@ -32,10 +31,9 @@ export function countCsvRows(path, { chunkBytes = 1 << 16 } = {}) {
       }
       lastByte = buf[n - 1]
       total += n
-    }
-  } finally {
-    closeSync(fd)
-  }
+    },
+    chunkBytes,
+  )
   if (total === 0) return 0
   // A trailing newline terminates the last row rather than starting a new one.
   // (At a well-formed EOF quotes are always balanced, so the final `\n` — if any

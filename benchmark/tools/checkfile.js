@@ -1,7 +1,7 @@
-import { readFileSync, writeFileSync, existsSync, openSync, readSync, closeSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
-import { datasetDir, resourceFile, sha256Of } from './layout.js'
+import { datasetDir, resourceFile, sha256Of, scanFileBytes } from './layout.js'
 
 // The checkfile is the committed home for everything GENERATED about a benchmark:
 // dataset identity, generator version, per-size resource counts, per-file sha256
@@ -9,64 +9,51 @@ import { datasetDir, resourceFile, sha256Of } from './layout.js'
 // pure data operations (no timing/execution), so they live in the build tooling;
 // the runner composes them with its own timing harness and analytic cross-check.
 
-// Read a file in fixed-size byte chunks, invoking onChunk(buf, n) per read, so no
-// consumer ever holds the whole (potentially xl-sized) file in memory as a single
-// string or buffer — the JS engine's max string length is what OOMs a whole-file
-// read of a ~9 GB resource. `chunkBytes` is injectable only so tests can force
-// many chunk boundaries with small files.
-function scanFileBytes(path, onChunk, chunkBytes = 1 << 16) {
-  const fd = openSync(path, 'r')
-  const buf = Buffer.allocUnsafe(chunkBytes)
-  try {
-    let n
-    while ((n = readSync(fd, buf, 0, buf.length, null)) > 0) onChunk(buf, n)
-  } finally {
-    closeSync(fd)
-  }
-}
-
-// Count NDJSON lines by streaming the file and counting newline bytes, so the
-// count derives from the same byte-level rule as hashAndCountLines: a file that
-// does not end in a newline counts its final unterminated line, and an empty file
-// counts zero. The checkfile locks these counts under sha256, so every other
-// consumer (e.g. the harness's report resourceCounts) reuses this single
-// implementation rather than risking divergent semantics.
-export function countLines(path, { chunkBytes } = {}) {
+// The one newline-count rule, shared structurally by countLines and
+// hashAndCountLines rather than asserted equivalent in a comment: a file that
+// does not end in a newline counts its final unterminated line, and an empty
+// file counts zero. Newlines are found with Buffer.indexOf (native memchr)
+// rather than a per-byte JS loop — a counting pass at the xl tier visits ~9e9
+// bytes. `0x0A` never occurs inside a UTF-8 multibyte sequence, so byte-level
+// scanning is multibyte-safe.
+function lineTally() {
   let total = 0
   let newlines = 0
   let lastByte = -1
-  scanFileBytes(
-    path,
-    (buf, n) => {
-      for (let i = 0; i < n; i++) if (buf[i] === 10) newlines++
+  return {
+    update(buf, n) {
+      for (let i = 0; (i = buf.indexOf(10, i)) !== -1 && i < n; i++) newlines++
       lastByte = buf[n - 1]
       total += n
     },
-    chunkBytes,
-  )
-  return total === 0 ? 0 : lastByte === 10 ? newlines : newlines + 1
+    lines: () => (total === 0 ? 0 : lastByte === 10 ? newlines : newlines + 1),
+  }
+}
+
+// Count NDJSON lines by streaming the file. The checkfile locks these counts
+// under sha256, so every other consumer (e.g. the harness's report
+// resourceCounts) reuses this single implementation rather than risking
+// divergent semantics.
+export function countLines(path, { chunkBytes } = {}) {
+  const tally = lineTally()
+  scanFileBytes(path, tally.update, chunkBytes)
+  return tally.lines()
 }
 
 // Streaming sha256 + line count in a single pass over the same fixed-size chunks,
 // so blessing the largest tier stays memory-bounded (benchmark-reference-runner).
-// The line count is byte-identical to countLines.
 export function hashAndCountLines(path, { chunkBytes } = {}) {
   const hash = createHash('sha256')
-  let total = 0
-  let newlines = 0
-  let lastByte = -1
+  const tally = lineTally()
   scanFileBytes(
     path,
     (buf, n) => {
       hash.update(buf.subarray(0, n))
-      for (let i = 0; i < n; i++) if (buf[i] === 10) newlines++
-      lastByte = buf[n - 1]
-      total += n
+      tally.update(buf, n)
     },
     chunkBytes,
   )
-  const lines = total === 0 ? 0 : lastByte === 10 ? newlines : newlines + 1
-  return { sha256: hash.digest('hex'), lines }
+  return { sha256: hash.digest('hex'), lines: tally.lines() }
 }
 
 // Build a checkfile object from materialized data + assertions. When `previous` is

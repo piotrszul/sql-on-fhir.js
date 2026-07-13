@@ -68,7 +68,9 @@ function countRows(nnode, node, def, envVars) {
 // Normalizing a view is a pure function of the view object, but bless calls
 // cardinality() once per resource (millions of times at xl). Memoize the
 // normalized tree per view object so the structuredClone + normalize runs once,
-// not once per resource. Keyed weakly so it never keeps a view alive.
+// not once per resource. Keyed weakly so it never keeps a view alive. The key is
+// object identity, so a caller that MUTATES a view between calls would read a
+// stale tree — callers must treat views as immutable (bless does).
 const normalizedViews = new WeakMap()
 function normalizedView(view) {
   let normal = normalizedViews.get(view)

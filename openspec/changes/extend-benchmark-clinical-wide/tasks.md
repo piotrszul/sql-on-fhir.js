@@ -97,3 +97,14 @@ refactor — locked by tiny-`chunkBytes` boundary tests (see D9); no behavioural
 - [x] 13.4 Add a `benchmark-harness` requirement ("Harness run reads resource files by streaming") + design D9; `openspec validate --strict` green
 - [x] 13.5 Verify: benchmark + sof-js suites green, `bun run validate` + `bun run check-fmt` clean, and the harness e2e run at `s` on `clinical-wide` still reports all 6 cases `verified: true`
 - [x] 13.6 (re-review, LOW) Stream the run path's OUTPUT side too: tests first — `countCsvRows` chunk-boundary correctness with quote state carried across tiny chunks (`harness-csv.test.js`), and `writeCsvFile` byte-identity to `serializeCsv` across tiny buffer sizes incl. empty result and escaped fields (new `sof-js/tests/csv.test.js`). Then stream `countCsvRows` (byte-chunk RFC-4180 scan, `csv-count.js`); refactor `serializeCsv` onto a `csvLines` generator and add a synchronous streaming `writeCsvFile`; point the hook at `writeCsvFile` (keeping `serializeCsv` for the server `$run` path). Extend the harness requirement + design D9 to the output side. Re-verified e2e at `s`: all 6 `verified: true`
+
+## 14. Cleanup pass (/simplify over the review follow-ups)
+
+Output-preserving consolidation of tasks 12–13; behaviour locked by the existing
+tiny-`chunkBytes` boundary/parity tests (all suites re-run green, same 11
+pre-existing sof-js conformance failures as the baseline, none benchmark-related).
+
+- [x] 14.1 One chunk-scan primitive: export `scanFileBytes` from `layout.js`; rebuild `sha256Of`, `countLines`, `hashAndCountLines`, and `countCsvRows` on it (was four hand-rolled `openSync`/`readSync` loops). `loadResources` keeps its own loop deliberately — the hook example must not depend on harness tooling; only the bless path crosses that boundary
+- [x] 14.2 One newline-count rule: share a `lineTally` between `countLines` and `hashAndCountLines` (the byte-identical guarantee is now structural, not asserted) and find newlines with `Buffer.indexOf` (native memchr) instead of a per-byte JS loop (~9e9 iterations per pass at `xl`); `countCsvRows` keeps its per-byte loop — quote state needs every byte
+- [x] 14.3 `loadResources`: probe the raw chunk for `\n` before joining, so a line spanning k chunks joins once instead of re-scanning the carried prefix per chunk (was O(k²) inside the harness-timed load phase); `writeCsvFile`: accumulate lines in an array and join once per flush instead of per-line concatenation
+- [x] 14.4 Document the `cardinality()` memo's identity-key caveat (a mutated view would read a stale tree; views are treated as immutable). Deliberately NOT done: unifying the `--strict` double pass (`verifyChecksums` + `observeResourceCounts` scan the same files twice — predates this change, needs cli↔runner replumbing); async `handle()` + `streamResources` in the hook (contradicts D9's stays-sync decision)

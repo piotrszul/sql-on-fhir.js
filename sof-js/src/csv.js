@@ -48,17 +48,23 @@ export function serializeCsv(rows, opts = {}) {
 export function writeCsvFile(path, rows, { includeHeader = true, bufferBytes = 1 << 16 } = {}) {
   const fd = openSync(path, 'w')
   try {
-    let buf = ''
+    // Lines accumulate in an array and are joined once per flush — no per-line
+    // string concatenation. The flush threshold counts UTF-16 units, an
+    // approximation of bytes that only affects flush timing, never content.
+    let parts = []
+    let buffered = 0
     let first = true
     for (const line of csvLines(rows, { includeHeader })) {
-      buf += first ? line : '\n' + line
-      first = false
-      if (buf.length >= bufferBytes) {
-        writeSync(fd, buf)
-        buf = ''
+      parts.push(line)
+      buffered += line.length + 1
+      if (buffered >= bufferBytes) {
+        writeSync(fd, (first ? '' : '\n') + parts.join('\n'))
+        first = false
+        parts = []
+        buffered = 0
       }
     }
-    if (buf.length > 0) writeSync(fd, buf)
+    if (parts.length > 0) writeSync(fd, (first ? '' : '\n') + parts.join('\n'))
   } finally {
     closeSync(fd)
   }

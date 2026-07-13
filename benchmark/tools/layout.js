@@ -10,23 +10,32 @@ export function pathFrom(importMetaUrl, rel) {
   return fileURLToPath(new URL(rel, importMetaUrl))
 }
 
-// Shared content hash for a materialized file. The checkfile is the authoritative
-// home for per-file sha256; both the checkfile builder and any consumer that needs
-// to compare on-disk bytes use this single implementation. It streams the file in
-// fixed-size byte chunks rather than reading it whole, so the harness's checksum
-// verification stays memory-bounded even at the xl (100k) tier where a single
-// resource file can be ~9 GB. `chunkBytes` is injectable only so tests can force
-// many chunk boundaries with small files.
-export function sha256Of(path, { chunkBytes = 1 << 16 } = {}) {
+// The single chunk-scan primitive: read a file in fixed-size byte chunks,
+// invoking onChunk(buf, n) per read, so no consumer ever holds the whole
+// (potentially xl-sized) file in memory as a single string or buffer — the JS
+// engine's max string length is what OOMs a whole-file read of a ~9 GB resource.
+// Every streaming reader (sha256Of, the checkfile's line counters, the harness's
+// CSV row count) builds on it. `chunkBytes` is injectable only so tests can
+// force many chunk boundaries with small files.
+export function scanFileBytes(path, onChunk, chunkBytes = 1 << 16) {
   const fd = openSync(path, 'r')
-  const hash = createHash('sha256')
   const buf = Buffer.allocUnsafe(chunkBytes)
   try {
     let n
-    while ((n = readSync(fd, buf, 0, buf.length, null)) > 0) hash.update(buf.subarray(0, n))
+    while ((n = readSync(fd, buf, 0, buf.length, null)) > 0) onChunk(buf, n)
   } finally {
     closeSync(fd)
   }
+}
+
+// Shared content hash for a materialized file. The checkfile is the authoritative
+// home for per-file sha256; both the checkfile builder and any consumer that needs
+// to compare on-disk bytes use this single implementation. Streaming, so the
+// harness's checksum verification stays memory-bounded even at the xl (100k) tier
+// where a single resource file can be ~9 GB.
+export function sha256Of(path, { chunkBytes } = {}) {
+  const hash = createHash('sha256')
+  scanFileBytes(path, (buf, n) => hash.update(buf.subarray(0, n)), chunkBytes)
   return hash.digest('hex')
 }
 
