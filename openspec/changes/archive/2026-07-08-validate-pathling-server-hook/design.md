@@ -123,9 +123,10 @@ them. The REST facts that shape the adapter, established during exploration
    apply actually hits.
 
 4. **`capabilities` is deployment-aware.** The adapter distinguishes its
-   deployment from the environment: spawn mode is signalled by the harness
-   setting `HOOK_PORT`; connect mode is the operator starting the adapter
-   against an already-running Pathling. The adapter declares
+   deployment from the environment: connect mode is signalled by the operator
+   setting `PATHLING_BASE` to an already-running Pathling; spawn mode is its
+   absence (the adapter owns a fresh container). (Both modes receive `HOOK_PORT`,
+   so it cannot distinguish them.) The adapter declares
    `['preloaded_repeated']` when it cannot honestly serve cold `end_to_end`
    (connect against a long-lived server) and `['preloaded_repeated',
    'end_to_end']` when it can (spawn, fresh container per sample). The harness
@@ -137,7 +138,8 @@ them. The REST facts that shape the adapter, established during exploration
    hands the adapter a host absolute `dataDir`; Pathling reads inside a
    container. To avoid a path-translation contract, the container mounts the
    host data directory at the IDENTICAL absolute path
-   (`-v <dataRoot>:<dataRoot>`) and sets
+   (`--mount type=bind,source=<dataRoot>,target=<dataRoot>,readonly` — `-v`
+   mis-parses absolute paths) and sets
    `pathling.import.allowableSources=file://<dataRoot>/`, so the adapter passes
    `file://<dataDir>/<Resource>.ndjson` verbatim. Spawn mode does this in its
    own `docker run`; connect mode documents the same mount in the hook README.

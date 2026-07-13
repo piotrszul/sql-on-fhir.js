@@ -31,7 +31,7 @@
 //               overwrite. Returns ok so connect-mode preloaded hygiene passes.
 //   shutdown -> stop the owned container (spawn), then exit 0.
 
-import { writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { createServer } from 'node:net'
 import { join } from 'node:path'
@@ -139,6 +139,32 @@ async function waitForServer(base, budgetMs = 300_000) {
 }
 
 const engineVersion = (cs) => cs?.software?.version || 'unknown'
+
+// The report's engine version comes from the manifest's static
+// implementation.engine.version, which the harness copies verbatim — but the
+// spawn image defaults to :latest, so a moved image (or a mislabelled operator
+// server in connect mode) would make that reported version a silent lie. Read
+// the version this deployment's manifest declares and warn loudly if the live
+// server disagrees, mirroring the connect-mode unreachable-backend warning.
+function warnIfVersionDrifted(cs) {
+  if (!cs) return
+  const live = engineVersion(cs)
+  const manifest = connectBase ? 'hook.connect.json' : 'hook.spawn.json'
+  try {
+    const declared = JSON.parse(readFileSync(new URL(`./${manifest}`, import.meta.url)))?.implementation
+      ?.engine?.version
+    if (declared && declared !== live) {
+      console.error(
+        `pathling-server-hook: WARNING ${manifest} declares engine version ${declared} but the running ` +
+          `server reports ${live}; the benchmark report will carry the stale declared value.`,
+      )
+    }
+  } catch (err) {
+    console.error(
+      `pathling-server-hook: WARNING could not verify engine version against ${manifest}: ${err.message}`,
+    )
+  }
+}
 
 // --- REST translations -------------------------------------------------------
 
@@ -275,6 +301,7 @@ if (connectBase) {
 
 console.error(`pathling-server-hook: ${connectBase ? 'connect' : 'spawn'} mode, base ${base()}`)
 console.error(`pathling-server-hook: engine version ${engineVersion(capabilityStatement)}`)
+warnIfVersionDrifted(capabilityStatement)
 
 Bun.serve({
   hostname: '127.0.0.1',
