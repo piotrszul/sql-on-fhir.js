@@ -175,32 +175,34 @@ delta was the right, deployment-neutral shape.
 
 The report's `implementation` block is copied verbatim from the hook manifest
 (`benchmark-hook.schema.json` says so); nothing checks it against the engine
-that actually ran. That is a live risk here: the spawn deployment defaults to
-the floating `ghcr.io/aehrc/pathling:latest` image while `hook.spawn.json` pins
-`engine.version: 2.0.1+78a3f75`, so a moved `:latest` would make every spawn
-report carry a stale version silently. The adapter mitigates locally: it reads
-the live version from the server's CapabilityStatement at startup and warns on
-stderr when it disagrees with the mode-matching manifest. Two known limits of
-that mitigation, which is why this is recorded as an observation rather than
-solved in the hook:
+that actually ran. The spawn deployment used to invite this drift by defaulting
+to the floating `ghcr.io/aehrc/pathling:latest` image while `hook.spawn.json`
+pins `engine.version: 2.0.1+78a3f75` — a moved `:latest` would have made every
+spawn report carry a stale version silently. Two defences are now in place:
 
-- The adapter _guesses_ which manifest the harness loaded by filename
-  convention (`hook.connect.json` / `hook.spawn.json` next to the script); only
-  the harness knows what it actually parsed, and the same drift risk exists for
-  every hook (the CLI cycle's manifest still declares `9.9.0.dev`), yet the
-  check lives only here.
-- Detection without prevention: the warning cannot correct the report. The
-  deployment-level fix is pinning the image where the version is declared —
-  the manifest's `env` mechanism (`"env": { "PATHLING_IMAGE": … }`, which the
-  harness already merges into the spawned process) — left unapplied in this
-  cycle only because the available image tags could not be verified offline.
+- **Prevention (spawn).** `hook.spawn.json` pins the image by digest next to the
+  version it declares — `"env": { "PATHLING_IMAGE":
+  "ghcr.io/aehrc/pathling@sha256:f173027d…" }`, which the harness merges into the
+  spawned adapter (`worker.js`). The recorded spawn pass is now reproducible: the
+  digest resolves to exactly the declared `2.0.1+78a3f75`, not to whatever
+  `:latest` points at later. (The adapter's own default is still `:latest` for
+  ad-hoc runs; benchmark runs go through the pinned manifest.)
+- **Detection (both modes).** The adapter reads the live version from the
+  server's CapabilityStatement at startup and warns on stderr when it disagrees
+  with the mode-matching manifest — a backstop for connect mode (operator-owned
+  server, no image pin the hook controls) and for any future manifest edit that
+  outruns the image.
 
-The contract-shaped fix, if a future cycle takes it: an optional advisory
-engine version in the `capabilities` response that the harness compares against
-`manifest.implementation.engine.version`, warning (or annotating the report)
-centrally for all hooks. Not forced now — no observed run was mislabelled — so
-this is recorded as an observation, with the contract-gap fix left for a future
-cycle to weigh, rather than a change forced here.
+Two limits keep this an observation rather than a solved-everywhere fix: the
+adapter still _guesses_ which manifest the harness loaded by filename convention
+(only the harness knows what it parsed), and the same drift risk exists for
+every hook (the CLI cycle's manifest still declares `9.9.0.dev` with no pin), yet
+the check lives only here. The contract-shaped fix, if a future cycle takes it:
+an optional advisory engine version in the `capabilities` response that the
+harness compares against `manifest.implementation.engine.version`, warning (or
+annotating the report) centrally for all hooks. Not forced now — no observed run
+was mislabelled and this deployment now pins its own image — so this stays an
+observation, with the central fix left for a future cycle to weigh.
 
 ## 10. The reset-omission SHALL conflates "discard data" with "return to cold" — **doc gap**
 
@@ -239,6 +241,7 @@ against the checkfile.
 | spawn   | end_to_end         | `s`  | **verified clean pass** — 6406 / 4366 (checkfile-exact), 0 warmup + 5 samples (fresh container per sample); no leaked containers; report + JMH valid.                                                                   |
 | spawn   | end_to_end         | `m`  | **verified clean pass** — 48908 / 39479 (checkfile-exact); report + JMH valid.                                                                                                                                          |
 | spawn   | end_to_end         | `l`  | **verified clean pass** — 459611 / 390615 (checkfile-exact), a fresh container + cold `$import` of ~1.5M resources per sample (10 samples, no leaked containers); report + JMH valid.                                   |
+| spawn   | preloaded_repeated | `s`  | **verified clean pass** — 6406 / 4366 (checkfile-exact), 1 warmup + 5 samples (one adapter-owned container, warm `run` timed); report + JMH valid (`variant: server-spawn`). Closes the declared-but-unvalidated spawn scenario. |
 
 Re-verified on 2026-07-13 after the adapter edits that postdate the `m`/`l`
 runs (byte-buffered `runView` via `arrayBuffer()`, keep-alive body drains,
@@ -248,7 +251,13 @@ pass clean — 6406 / 4366 checkfile-exact, reports valid against
 `benchmark-report.schema.json`, JMH params carrying
 `Pathling-2.0.1+78a3f75-server-connect` / `-server-spawn`, no leaked
 containers. The live server reported engine version `2.0.1+78a3f75`, matching
-the manifest, so the drift check (finding 9) stayed silent.
+the manifest, so the drift check (finding 9) stayed silent. The same run
+exercised spawn `preloaded_repeated` at `s` for the first time — `hook.spawn.json`
+declares it but no earlier pass had driven it — and it too passed clean, so the
+manifest's declared scenarios now all have a validating run. That run also used
+the digest-pinned image (finding 9): `hook.spawn.json`'s `env.PATHLING_IMAGE`
+now pins `ghcr.io/aehrc/pathling@sha256:f173027d…`, and the adapter launched it
+with no drift warning.
 
 No tool defect and no benchmark-case defect. Every spec-stress point the design
 raised (reset honesty, prepare-replaces, `preloaded_repeated` warmth,
