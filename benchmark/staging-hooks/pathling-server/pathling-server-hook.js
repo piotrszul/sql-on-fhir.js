@@ -5,7 +5,7 @@
 // REST API. Engine failures travel in the body ({"ok":false,"error":...}) with a
 // 2xx status; the harness owns all timing, so the phasesMs here are advisory.
 //
-// Two deployments, distinguished by env (see hook.json variants):
+// Two deployments, distinguished by env (see hook.connect.json / hook.spawn.json):
 //
 //   connect mode — PATHLING_BASE points at an operator-managed Pathling server.
 //     The adapter never touches that server's lifecycle. Because a long-lived
@@ -39,6 +39,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const IMPORT_POLL_MS = 250 // $job status poll cadence (adapter-side, documented)
 const IMPORT_BUDGET_MS = 300_000 // give up on a wedged import rather than loop forever
+const READY_POLL_MS = 500 // readiness (CapabilityStatement) poll cadence
+const READY_BUDGET_MS = 300_000 // give up on a server that never becomes ready
 
 // --- deployment resolution --------------------------------------------------
 
@@ -125,16 +127,16 @@ function stopContainer() {
 
 // Readiness: poll until the FHIR CapabilityStatement is served, returning it so
 // the caller reads the engine version from the same fetch (no second round-trip).
-async function waitForServer(base, budgetMs = 300_000) {
-  const deadline = Date.now() + budgetMs
+async function waitForServer(base) {
+  const deadline = Date.now() + READY_BUDGET_MS
   for (;;) {
     try {
       return await fetchMetadata(base)
     } catch {
       // not listening yet
     }
-    if (Date.now() >= deadline) throw new Error(`Pathling server not ready within ${budgetMs}ms`)
-    await sleep(500)
+    if (Date.now() >= deadline) throw new Error(`Pathling server not ready within ${READY_BUDGET_MS}ms`)
+    await sleep(READY_POLL_MS)
   }
 }
 
@@ -207,22 +209,26 @@ async function runImport(base, dataDir, resources) {
   }
   const jobUrl = res.headers.get('content-location')
   if (!jobUrl) throw new Error('$import returned 202 without a Content-Location job URL')
+  await res.arrayBuffer() // drain unread bodies so keep-alive reuses one connection
   const deadline = Date.now() + IMPORT_BUDGET_MS
   for (;;) {
     const poll = await fetch(jobUrl, { headers: { accept: 'application/fhir+json' } })
-    if (poll.status === 200) return
-    if (poll.status !== 202) {
+    if (poll.status !== 200 && poll.status !== 202) {
       throw new Error(`$import job failed (HTTP ${poll.status}): ${await errBody(poll)}`)
     }
+    await poll.arrayBuffer() // drain (see above) — polls can number in the hundreds
+    if (poll.status === 200) return
     if (Date.now() >= deadline) throw new Error(`$import job did not finish within ${IMPORT_BUDGET_MS}ms`)
     await sleep(IMPORT_POLL_MS)
   }
 }
 
 // $viewdefinition-run is synchronous and returns the flat result as one CSV
-// document (header row, per the run-output contract). Read the whole body:
-// Bun.write(outCsv, res) would stream, but it spins on Pathling's chunked
-// transfer encoding, so the body is buffered and written in one call.
+// document (header row, per the run-output contract). Read the whole body as
+// bytes: Bun.write(outCsv, res) would stream, but it spins on Pathling's
+// chunked transfer encoding, so the body is buffered and written in one call —
+// as bytes, not text, sparing the timed run path a decode/re-encode round trip
+// of a payload that reaches hundreds of MB at size l.
 async function runView(base, view) {
   const body = {
     resourceType: 'Parameters',
@@ -238,7 +244,7 @@ async function runView(base, view) {
     body: JSON.stringify(body),
   })
   if (!res.ok) throw new Error(`$viewdefinition-run failed (HTTP ${res.status}): ${await errBody(res)}`)
-  return res.text()
+  return new Uint8Array(await res.arrayBuffer())
 }
 
 // --- protocol -----------------------------------------------------------------
@@ -281,27 +287,30 @@ async function handle(name, body) {
 
 // --- bring-up -----------------------------------------------------------------
 
+// Log the live engine version and check it against the manifest's declaration.
+function reportEngineVersion(cs) {
+  console.error(`pathling-server-hook: engine version ${engineVersion(cs)}`)
+  warnIfVersionDrifted(cs)
+}
+
 // In spawn mode, own the Pathling container and only start listening once it is
 // ready — so the port opens (harness readiness passes) exactly when the server
-// can serve. In connect mode, the operator guarantees Pathling is up already.
-let capabilityStatement
+// can serve. In connect mode the operator owns readiness, so the metadata fetch
+// is advisory only and must not hold the hook port hostage to a down or slow
+// backend: it runs concurrently, loud on stderr rather than hard-failing (the
+// operator may start the adapter before Pathling).
 if (connectBase) {
-  capabilityStatement = await fetchMetadata(connectBase).catch((err) => {
-    // Don't hard-fail (the operator may start the adapter before Pathling), but
-    // make a down/misconfigured backend loud rather than a silent "unknown".
+  fetchMetadata(connectBase).then(reportEngineVersion, (err) => {
     console.error(`pathling-server-hook: WARNING cannot reach ${connectBase}: ${err.message}`)
-    return null
   })
 } else {
   // Register cleanup BEFORE the (blocking) container boot, so a signal during
   // startup still tears the container down instead of orphaning it.
   for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, cleanupAndExit)
-  capabilityStatement = await startContainer()
+  reportEngineVersion(await startContainer())
 }
 
 console.error(`pathling-server-hook: ${connectBase ? 'connect' : 'spawn'} mode, base ${base()}`)
-console.error(`pathling-server-hook: engine version ${engineVersion(capabilityStatement)}`)
-warnIfVersionDrifted(capabilityStatement)
 
 Bun.serve({
   hostname: '127.0.0.1',

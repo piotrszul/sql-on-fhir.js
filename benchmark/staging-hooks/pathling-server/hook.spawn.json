@@ -2,6 +2,6 @@
   "command": ["bun", "pathling-server-hook.js"],
   "implementation": {
     "engine": { "name": "Pathling", "version": "2.0.1+78a3f75" },
-    "variant": "server"
+    "variant": "server-spawn"
   }
 }
