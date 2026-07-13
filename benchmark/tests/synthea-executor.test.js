@@ -101,9 +101,15 @@ test('synthea executor passes -e from params.endTime', async () => {
   expect(args[eIdx + 1]).toBe('20250101')
 })
 
-test('synthea executor pins --generate.thread_count=1 for deterministic export order', async () => {
+test('synthea executor emits no generation thread flag (order is stabilised by canonicalisation, not by a generator flag)', async () => {
+  // `--generate.thread_count` is not a real Synthea property (silently ignored),
+  // and even a genuine single-threaded pool does not make bulk NDJSON export order
+  // deterministic — export runs on the multi-threaded generator pool. So the
+  // executor must NOT pretend to control order via a thread flag; the materializer
+  // canonicalises (external merge sort) instead.
   const args = await captureArgs({ params: { endTime: 20250101 } })
-  expect(args).toContain('--generate.thread_count=1')
+  expect(args.some((a) => a.startsWith('--generate.thread_count'))).toBe(false)
+  expect(args.some((a) => a.startsWith('--generate.thread_pool_size'))).toBe(false)
 })
 
 test('synthea executor sources export toggles from params (none hardcoded)', async () => {
@@ -142,6 +148,28 @@ test('synthea executor toggles follow params, not hardcoded defaults', async () 
 test('synthea executor keeps --exporter.fhir.export=true as an invariant', async () => {
   const args = await captureArgs({ params: { endTime: 20250101 } })
   expect(args).toContain('--exporter.fhir.export=true')
+})
+
+// Export-filtered generation: the recipe's resources are passed to Synthea's
+// per-resource export filter so generation emits only the needed types instead of
+// every type (the materializer's prune then only mops up force-exported siblings).
+test('synthea executor passes recipe.resources as --exporter.fhir.included_resources', async () => {
+  const args = await captureArgs({
+    params: { endTime: 20250101 },
+    resources: ['Condition', 'Observation', 'Patient'],
+  })
+  const arg = args.find((a) => String(a).startsWith('--exporter.fhir.included_resources='))
+  expect(arg).toBeDefined()
+  const listed = arg.slice('--exporter.fhir.included_resources='.length).split(',')
+  // order-insensitive: the SET of listed resources is exactly the recipe's
+  expect(listed.sort()).toEqual(['Condition', 'Observation', 'Patient'])
+})
+
+test('synthea executor emits no included_resources filter when the recipe lists no resources', async () => {
+  const noResources = await captureArgs({ params: { endTime: 20250101 } })
+  expect(noResources.some((a) => String(a).startsWith('--exporter.fhir.included_resources='))).toBe(false)
+  const emptyResources = await captureArgs({ params: { endTime: 20250101 }, resources: [] })
+  expect(emptyResources.some((a) => String(a).startsWith('--exporter.fhir.included_resources='))).toBe(false)
 })
 
 test('no synthea arg leaks the literal "undefined" for a fully-declared recipe', async () => {

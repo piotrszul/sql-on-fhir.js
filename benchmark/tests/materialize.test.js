@@ -60,6 +60,49 @@ test('materialize is idempotent — second call skips the executor', async () =>
   rmSync(dataRoot, { recursive: true })
 })
 
+// Export-filtered generation retains the prune as a safety net: Synthea force-
+// exports Patient/Encounter regardless of the included_resources filter, so a
+// recipe selecting only ["Condition"] still relies on the materializer to drop
+// those force-exported siblings. Kept resources are byte-identical whether or not
+// siblings were also exported (each resource file's content is independent).
+test('force-exported siblings are pruned and the kept resource is byte-identical', async () => {
+  const sha = (p) => createHash('sha256').update(readFileSync(p)).digest('hex')
+  const condLines = '{"id":"c2"}\n{"id":"c1"}\n{"id":"c3"}\n'
+
+  // Run A: executor force-exports Patient/Encounter alongside the selected Condition.
+  const withSiblings = async (recipe, population, outDir) => {
+    mkdirSync(outDir, { recursive: true })
+    writeFileSync(join(outDir, 'Condition.ndjson'), condLines)
+    writeFileSync(join(outDir, 'Patient.ndjson'), '{"id":"p1"}\n')
+    writeFileSync(join(outDir, 'Encounter.ndjson'), '{"id":"e1"}\n')
+  }
+  const rootA = freshRoot()
+  const manifest = await materialize({
+    dataset,
+    size: 's',
+    dataRoot: rootA,
+    executor: withSiblings,
+    force: true,
+  })
+  expect(manifest.resources.Condition).toBe(3)
+  expect(manifest.resources.Patient).toBeUndefined() // force-exported sibling pruned
+  expect(manifest.resources.Encounter).toBeUndefined()
+
+  // Run B: executor emits ONLY Condition (filter fully honoured, nothing to prune).
+  const onlySelected = async (recipe, population, outDir) => {
+    mkdirSync(outDir, { recursive: true })
+    writeFileSync(join(outDir, 'Condition.ndjson'), condLines)
+  }
+  const rootB = freshRoot()
+  await materialize({ dataset, size: 's', dataRoot: rootB, executor: onlySelected, force: true })
+
+  const shaA = sha(resourceFile(rootA, 'synthea-clinical', '1', 's', 'Condition'))
+  const shaB = sha(resourceFile(rootB, 'synthea-clinical', '1', 's', 'Condition'))
+  expect(shaA).toBe(shaB) // kept resource bytes are unaffected by pruned siblings
+  rmSync(rootA, { recursive: true })
+  rmSync(rootB, { recursive: true })
+})
+
 // §4.4 Byte-identity: the same recipe under two simulated timezones yields identical
 // per-file sha256. The executor here honours process.env.TZ to stamp its output, so
 // this proves the TZ=UTC pin (§3) collapses the two into byte-identical files.

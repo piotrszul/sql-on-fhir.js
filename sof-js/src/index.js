@@ -188,7 +188,7 @@ function select(select_expr, node, def, envVars = {}) {
 // * select[..] / union                    -> select [union, ..]
 // * select[..] / column                  -> select [column, ..]
 // * union      / column                  -> select [column, union]
-function normalize(def) {
+export function normalize(def) {
   if (def.forEach) {
     def.select ||= []
     def.type = 'forEach'

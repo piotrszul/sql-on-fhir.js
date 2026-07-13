@@ -1,15 +1,15 @@
 import { test, expect } from 'bun:test'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { blessCheckfile, deriveExpectedCount } from '../src/benchmark-run.js'
+import { blessCheckfile } from '../src/benchmark-run.js'
 import { datasetDir, checkfileFor } from '../../benchmark/tools/layout.js'
 import { readCheckfile, assertionFor } from '../../benchmark/tools/checkfile.js'
 
 // benchmark-run.js is bless-only: the measurement loop, report emission and JMH
 // projection live in the shared harness (benchmark/tools/harness). What remains
 // here is the reference-implementation privilege — minting checkfile assertions
-// under the analytic cross-check.
+// under the analytic cross-check, streaming the dataset resource-by-resource.
 
 const benchmark = {
   name: 'clinical-flat',
@@ -77,41 +77,20 @@ function checkfilePath(dataRoot) {
   return join(dataRoot, 'clinical-flat.check.json')
 }
 
-// ---- analytic derivation ----
+// ---- bless writes the checkfile, cross-checked, streaming, other sizes preserved ----
 
-test('deriveExpectedCount: plain projection => input resource count', () => {
-  const dataRoot = seedData()
-  const resources = readFileSync(join(dataRoot, 'synthea-clinical', '1', 's', 'Observation.ndjson'), 'utf8')
-    .trim()
-    .split('\n')
-    .map((l) => JSON.parse(l))
-  expect(deriveExpectedCount(benchmark.cases[0].view, resources)).toBe(2)
-  rmSync(dataRoot, { recursive: true, force: true })
-})
-
-test('deriveExpectedCount: forEach over a collection => total collection-entry count', () => {
-  const dataRoot = seedData()
-  const resources = readFileSync(join(dataRoot, 'synthea-clinical', '1', 's', 'Observation.ndjson'), 'utf8')
-    .trim()
-    .split('\n')
-    .map((l) => JSON.parse(l))
-  expect(deriveExpectedCount(benchmark.cases[1].view, resources)).toBe(3)
-  rmSync(dataRoot, { recursive: true, force: true })
-})
-
-// ---- bless writes the checkfile, cross-checked, other sizes preserved ----
-
-test('blessCheckfile writes the checkfile with counts, checksums and assertions; not the benchmark file', () => {
+test('blessCheckfile writes counts, checksums and assertions via the streaming path; not the benchmark file', async () => {
   const dataRoot = seedData()
   const cfPath = checkfilePath(dataRoot)
-  blessCheckfile({ benchmark, size: 's', dataRoot, checkfilePath: cfPath })
+  await blessCheckfile({ benchmark, size: 's', dataRoot, checkfilePath: cfPath })
   const cf = readCheckfile(cfPath)
   expect(cf.dataset).toEqual({ name: 'synthea-clinical', version: '1' })
   expect(cf.syntheaVersion).toBe('3.2.0')
   expect(cf.sizes.s.resourceCounts.Observation).toBe(2)
   expect(cf.sizes.s.files['Observation.ndjson'].sha256).toMatch(/^[0-9a-f]{64}$/)
+  // The streaming path produces the same counts as evaluating the whole array:
   expect(assertionFor(cf, 'obs', 's')).toBe(2)
-  expect(assertionFor(cf, 'obs-components', 's')).toBe(3) // forEach entry count
+  expect(assertionFor(cf, 'obs-components', 's')).toBe(3) // forEach component-entry count
   rmSync(dataRoot, { recursive: true, force: true })
 })
 
@@ -119,9 +98,22 @@ test('checkfileFor derives the checkfile path from the benchmark file path', () 
   expect(checkfileFor('/bench/clinical-flat.json')).toBe('/bench/clinical-flat.check.json')
 })
 
+// The self-protecting property: if the analytic derivation disagrees with the
+// observed evaluate() count, bless refuses — it can only ever BLOCK a bless, never
+// write a wrong count. Simulated by injecting a deliberately wrong derivation.
+test('blessCheckfile THROWS on a cross-check mismatch and writes nothing', async () => {
+  const dataRoot = seedData()
+  const cfPath = checkfilePath(dataRoot)
+  await expect(
+    blessCheckfile({ benchmark, size: 's', dataRoot, checkfilePath: cfPath, derive: () => 999 }),
+  ).rejects.toThrow(/cross-check failed/)
+  expect(existsSync(cfPath)).toBe(false) // no partial/incorrect checkfile written
+  rmSync(dataRoot, { recursive: true, force: true })
+})
+
 // bless is all-or-nothing, in deliberate contrast to the harness's per-case
 // record-and-continue: a checkfile must never be written from an incomplete run.
-test('blessCheckfile HARD-fails when a case resource file is absent (no isolation)', () => {
+test('blessCheckfile HARD-fails when a case resource file is absent (no isolation)', async () => {
   const dataRoot = seedData() // seeds Observation.ndjson but NOT Patient.ndjson
   const b = structuredClone(benchmark)
   b.cases.push({
@@ -132,20 +124,41 @@ test('blessCheckfile HARD-fails when a case resource file is absent (no isolatio
       select: [{ column: [{ name: 'id', path: 'getResourceKey()', type: 'string' }] }],
     },
   })
-  expect(() =>
+  await expect(
     blessCheckfile({ benchmark: b, size: 's', dataRoot, checkfilePath: checkfilePath(dataRoot) }),
-  ).toThrow()
+  ).rejects.toThrow()
   rmSync(dataRoot, { recursive: true, force: true })
 })
 
 // A recipe without a generator version must hard-fail rather than silently
 // recording the dataset version as the generator version (the removed fallback).
-test('blessCheckfile HARD-fails when the recipe omits syntheaVersion', () => {
+test('blessCheckfile HARD-fails when the recipe omits syntheaVersion', async () => {
   const dataRoot = seedData()
   const b = structuredClone(benchmark)
   delete b.dataset.syntheaVersion
-  expect(() =>
+  await expect(
     blessCheckfile({ benchmark: b, size: 's', dataRoot, checkfilePath: checkfilePath(dataRoot) }),
-  ).toThrow(/syntheaVersion/)
+  ).rejects.toThrow(/syntheaVersion/)
+  rmSync(dataRoot, { recursive: true, force: true })
+})
+
+// Blessing a subset (caseFilter) re-writes only the selected cases' assertions and
+// preserves the rest — the naive "prune to blessed keys" would have dropped them.
+test('blessCheckfile with a caseFilter preserves unselected cases assertions', async () => {
+  const dataRoot = seedData()
+  const cfPath = checkfilePath(dataRoot)
+  // bless everything first
+  await blessCheckfile({ benchmark, size: 's', dataRoot, checkfilePath: cfPath })
+  // re-bless only "obs"
+  await blessCheckfile({
+    benchmark,
+    size: 's',
+    dataRoot,
+    checkfilePath: cfPath,
+    caseFilter: (c) => c.id === 'obs',
+  })
+  const cf = readCheckfile(cfPath)
+  expect(assertionFor(cf, 'obs', 's')).toBe(2)
+  expect(assertionFor(cf, 'obs-components', 's')).toBe(3) // preserved, not pruned
   rmSync(dataRoot, { recursive: true, force: true })
 })
