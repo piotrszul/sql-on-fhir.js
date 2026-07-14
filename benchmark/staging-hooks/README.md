@@ -25,6 +25,12 @@ Findings taxonomy — every `FINDINGS.md` entry carries exactly one outcome:
 | doc gap               | README/spec wording insufficient            | here                     |
 | benchmark-case defect | a case fails on a conforming engine         | here, checkfile re-blessed |
 | tool defect           | the implementation under test is wrong      | tool's repo, cross-linked |
+| no contract change    | validated with no public-contract change (a clean pass, or a staging-hook-local fix) | staging hook only, or nothing |
+| tool/environment constraint | the tool or environment limits validation | none; the comparison is adapted around it |
+
+An outcome MAY carry a parenthetical qualifying the sub-reason (e.g. `no
+contract change (thin adapter)`, `tool/environment constraint (comparison
+adapted)`); the leading label is the taxonomy outcome.
 
 The per-target subdirectories:
 

@@ -1,4 +1,7 @@
 import { test, expect } from 'bun:test'
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import {
   SINK,
   sentinelFor,
@@ -11,6 +14,7 @@ import {
   requireEnv,
   previewArgs,
 } from '../staging-hooks/flatquack-internal/hook-lib.js'
+import { runDriver } from '../staging-hooks/flatquack-internal/flatquack-internal-driver.js'
 
 // The pure parts of the DuckDB-session hook, unit-tested without a duckdb binary
 // or a flatquack worktree (tasks 5.2–5.4): sentinel/line parsing, SQL assembly,
@@ -76,4 +80,22 @@ test('previewArgs builds the flatquack preview argv (directory + glob + input pa
     '--param',
     'fq_input_dir=/d',
   ])
+})
+
+// The D6 honesty guard on the driver: an internal custom-plan run may never be
+// mislabelled with an official-looking identity, so the driver refuses a hook
+// whose implementation.variant lacks the `internal-` prefix — loudly, before it
+// brings up any duckdb session. Uses the fixture hook (variant "test").
+test('the driver refuses a manifest whose implementation.variant lacks the internal- prefix (D6)', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'fq-internal-driver-'))
+  const suitePath = join(root, 'bench.json')
+  writeFileSync(
+    suitePath,
+    JSON.stringify({ name: 'bench', dataset: { name: 'd', version: '1', defaultSize: 's' } }),
+  )
+  const officialHook = join(import.meta.dir, 'fixtures/hooks/fake.hook.json') // variant "test"
+  await expect(runDriver(['--hook', officialHook, suitePath])).rejects.toThrow(
+    /implementation\.variant must start with "internal-"/,
+  )
+  rmSync(root, { recursive: true, force: true })
 })
