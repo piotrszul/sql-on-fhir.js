@@ -126,12 +126,7 @@ export async function runSuite({
     requiredScenario: scenario,
   })
   const results = await executeCases(ctx)
-  return assembleReport(ctx, results, {
-    scenario: binding.scenario,
-    phases: binding.phases,
-    sink: binding.plan.sink,
-    warmup: warmupCount(binding.plan.warmup, ctx.warmup),
-  })
+  return assembleReport(ctx, results, { scenario: binding.scenario, phases: binding.phases })
 }
 
 // The custom-plan entry point (design.md D3): the ONLY way to reach a plan that
@@ -219,11 +214,15 @@ async function executeCases(ctx) {
 async function runCase(c, outCsv, state, ctx) {
   const { plan } = ctx
 
+  // The timed region's command payloads are invariant across a case's samples;
+  // build them once here so no per-sample allocation lands inside the clock.
+  const commands = timedCommands(c, outCsv, ctx)
+
   if (plan.forkLevel === 'invocation') {
     const measured = await sampleLoop(ctx, async () => {
       const worker = await startGated(ctx)
       try {
-        return await timedRegionOnce(worker, c, outCsv, ctx)
+        return await timedRegionOnce(worker, commands, ctx)
       } finally {
         await worker.shutdown()
       }
@@ -237,11 +236,11 @@ async function runCase(c, outCsv, state, ctx) {
     if (plan.trialSetup === 'prepare-lazy') await prepareLazy(worker, c, prepared, ctx)
     for (let i = 0; i < warmups; i++) {
       await invocationSetup(worker, plan, ctx)
-      await timedRegionOnce(worker, c, outCsv, ctx)
+      await timedRegionOnce(worker, commands, ctx)
     }
     const measured = await sampleLoop(ctx, async () => {
       await invocationSetup(worker, plan, ctx)
-      return timedRegionOnce(worker, c, outCsv, ctx)
+      return timedRegionOnce(worker, commands, ctx)
     })
     const verified = await postLoopVerify(worker, c, outCsv, plan, ctx)
     return finishEntry(c, outCsv, measured, verified, ctx)
@@ -293,23 +292,26 @@ async function invocationSetup(worker, plan, ctx) {
   if (plan.invocationSetup === 'reset') await sendChecked(worker, { cmd: 'reset' }, ctx.inactivityMs)
 }
 
-// One wall-clocked pass over the plan's timed region. A csv-sink run streams to
-// outCsv (the harness counts that file); a table-sink run materializes in-engine
-// and post-loop verification owns the row count.
-async function timedRegionOnce(worker, c, outCsv, ctx) {
-  const t0 = performance.now()
-  let resp
-  for (const cmd of ctx.plan.timedRegion) {
-    resp = await sendChecked(worker, timedCommand(cmd, c, outCsv, ctx), ctx.inactivityMs)
-  }
-  return { ms: performance.now() - t0, resp }
+// The plan's timed region as concrete command payloads. A csv-sink run streams
+// to outCsv (the harness counts that file); a table-sink run materializes
+// in-engine and post-loop verification owns the row count.
+function timedCommands(c, outCsv, ctx) {
+  return ctx.plan.timedRegion.map((cmd) => {
+    if (cmd === 'prepare') return { cmd: 'prepare', dataDir: ctx.dataDir, resources: ctx.resources }
+    const runCmd = { cmd: 'run', view: c.view }
+    if (ctx.plan.sink === 'csv') runCmd.outCsv = outCsv
+    return runCmd
+  })
 }
 
-function timedCommand(cmd, c, outCsv, ctx) {
-  if (cmd === 'prepare') return { cmd: 'prepare', dataDir: ctx.dataDir, resources: ctx.resources }
-  const runCmd = { cmd: 'run', view: c.view }
-  if (ctx.plan.sink === 'csv') runCmd.outCsv = outCsv
-  return runCmd
+// One wall-clocked pass over the pre-built timed-region commands.
+async function timedRegionOnce(worker, commands, ctx) {
+  const t0 = performance.now()
+  let resp
+  for (const cmd of commands) {
+    resp = await sendChecked(worker, cmd, ctx.inactivityMs)
+  }
+  return { ms: performance.now() - t0, resp }
 }
 
 // The shared measurement loop: `measurement` timed samples, each produced by a
@@ -385,16 +387,19 @@ async function startGated(ctx) {
   return worker
 }
 
-function assembleReport(ctx, results, measurement) {
+// The report's measurement block is stamped from the caller-chosen scenario and
+// phases; sink and warmup are derived from ctx.plan so the two derivations never
+// drift from the plan actually executed.
+function assembleReport(ctx, results, { scenario, phases }) {
   return {
     implementation: ctx.manifest.implementation,
     benchmark: { name: ctx.benchmark.name, version: ctx.benchmark.version },
     dataset: { name: ctx.benchmark.dataset.name, version: ctx.benchmark.dataset.version },
     measurement: {
-      scenario: measurement.scenario,
-      phases: measurement.phases,
-      sink: measurement.sink,
-      warmup: measurement.warmup,
+      scenario,
+      phases,
+      sink: ctx.plan.sink,
+      warmup: warmupCount(ctx.plan.warmup, ctx.warmup),
       iterations: ctx.measurement,
     },
     results: {
@@ -416,12 +421,7 @@ function assembleReport(ctx, results, measurement) {
 // plus its `additionalProperties: false` on `measurement` make this record fail
 // validation everywhere the contract is enforced, at zero contract cost.
 function assembleInternalReport(ctx, results, { scenarioId, phases }) {
-  const record = assembleReport(ctx, results, {
-    scenario: scenarioId,
-    phases,
-    sink: ctx.plan.sink,
-    warmup: warmupCount(ctx.plan.warmup, ctx.warmup),
-  })
+  const record = assembleReport(ctx, results, { scenario: scenarioId, phases })
   record.measurement.plan = ctx.plan
   return record
 }

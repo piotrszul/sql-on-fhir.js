@@ -18,11 +18,11 @@
 // The harness owns all timing; the phasesMs reported here are advisory (the
 // hook's own view of the CREATE-TABLE region — the .timer cross-check).
 
-import { mkdtempSync, writeFileSync, rmSync, realpathSync } from 'node:fs'
+import { writeFileSync, rmSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { dirname, join } from 'node:path'
-import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
+import { makeEngineTempDir } from '../../tools/harness/tempdir.js'
 import { DuckSession } from './duck-session.js'
 import {
   requireEnv,
@@ -52,7 +52,7 @@ const compiled = new Map() // memoKey(view) -> CREATE TABLE _sink AS (...) SQL
 // duckdb, but node is flatquack's supported launcher).
 function compile(template, view) {
   if (!dataDir) throw new Error('run before prepare: no dataset dir recorded')
-  const viewDir = realpathSync(mkdtempSync(join(tmpdir(), 'fqi-view-')))
+  const viewDir = makeEngineTempDir('fqi-view-')
   try {
     writeFileSync(join(viewDir, 'view.json'), JSON.stringify(view))
     const res = spawnSync('node', previewArgs({ cli: FLATQUACK_CLI, template, viewDir, dataDir }), {
