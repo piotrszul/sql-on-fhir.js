@@ -26,10 +26,25 @@ Findings taxonomy — every `FINDINGS.md` entry carries exactly one outcome:
 | benchmark-case defect | a case fails on a conforming engine         | here, checkfile re-blessed |
 | tool defect           | the implementation under test is wrong      | tool's repo, cross-linked |
 
+The per-target subdirectories:
+
+- `flatquack/`, `pathling-cli/`, `pathling-server/` — the three contract
+  validation targets (CLI and HTTP hooks measured against the official
+  scenarios), one per OpenSpec change below.
+- `flatquack-internal/` — a different exercise (change `add-measurement-plans`):
+  a **custom measurement plan** (fork-per-trial, in-engine `table` sink,
+  untimed engine-reported `count`) driven through the harness module entry point
+  `runPlanSuite`, validating the internal-tuning reuse story. It emits an
+  `internal:<name>` record that is deliberately non-conforming (fail-closed) —
+  NOT an official-scenario report. Same migration exit criterion as the others:
+  it moves to flatquack's repo and this subdirectory is deleted before
+  `staging/benchmark` promotes to `main`.
+
 Design and workflow (ordering rule, exit criteria, migration plan):
 `../../docs/superpowers/specs/2026-07-07-benchmark-validation-staging-hooks-design.md`.
 The per-target work is tracked as OpenSpec changes:
 `validate-flatquack-hook`, `validate-pathling-cli-hook`,
-`validate-pathling-server-hook` (in that implementation order), each driven
-by the `validation-cycle` skill (`/validation-cycle <change>` in a fresh
-session; see `.claude/skills/validation-cycle/SKILL.md`).
+`validate-pathling-server-hook`, then `add-measurement-plans` (in that
+implementation order), each driven by the `validation-cycle` skill
+(`/validation-cycle <change>` in a fresh session; see
+`.claude/skills/validation-cycle/SKILL.md`).
