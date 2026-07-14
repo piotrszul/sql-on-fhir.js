@@ -16,7 +16,7 @@ const OFFICIAL_PHASES = {
   end_to_end: ['load', 'execute', 'extract'],
 }
 
-export const OFFICIAL_SCENARIOS = ['preloaded_repeated', 'end_to_end']
+export const OFFICIAL_SCENARIOS = Object.keys(OFFICIAL_PHASES)
 
 const ENUMS = {
   forkLevel: ['suite', 'trial', 'invocation'],
@@ -118,6 +118,24 @@ export function validatePlan(plan) {
     throw new SetupError(
       `measurement plan: ${plan.verification} verification is unreachable under invocation fork (no worker survives the sample loop)`,
     )
+  }
+  // Invocation fork spawns a fresh worker per sample, so trial setup, per-sample
+  // setup, and warmup iterations have no surviving worker to act on — the
+  // executor's invocation path never applies them. Accepting them anyway would
+  // let a plan (and the internal record that embeds it verbatim) claim
+  // choreography that never ran, so they are rejected rather than ignored.
+  if (plan.forkLevel === 'invocation') {
+    for (const [field, inert] of [
+      ['trialSetup', 'none'],
+      ['invocationSetup', 'none'],
+      ['warmup', 'zero'],
+    ]) {
+      if (plan[field] !== inert) {
+        throw new SetupError(
+          `measurement plan: invocation fork requires ${field} "${inert}" (a fresh worker per sample leaves ${field} "${plan[field]}" nothing to act on)`,
+        )
+      }
+    }
   }
   return plan
 }

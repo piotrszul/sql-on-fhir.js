@@ -4,7 +4,7 @@ import {
   sentinelFor,
   stripNoise,
   wrapSink,
-  countSql,
+  COUNT_SQL,
   extractSql,
   parseCount,
   memoKey,
@@ -33,8 +33,8 @@ test('wrapSink wraps a query as CREATE OR REPLACE TEMP TABLE _sink', () => {
   expect(sql.trimEnd().endsWith(');')).toBe(true)
 })
 
-test('countSql and extractSql target the sink; extract escapes single quotes in the path', () => {
-  expect(countSql()).toBe(`SELECT count(*) FROM ${SINK};`)
+test('COUNT_SQL and extractSql target the sink; extract escapes single quotes in the path', () => {
+  expect(COUNT_SQL).toBe(`SELECT count(*) FROM ${SINK};`)
   expect(extractSql('/tmp/o.csv')).toBe(`COPY ${SINK} TO '/tmp/o.csv' (FORMAT CSV, HEADER);`)
   expect(extractSql("/tmp/o'x.csv")).toContain("'/tmp/o''x.csv'")
 })

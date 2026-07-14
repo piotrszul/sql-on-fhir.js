@@ -154,6 +154,17 @@ test('invocation fork with a post-loop verb is rejected (no worker survives the 
   expect(() => validatePlan(bindingFor('end_to_end', 'spawn').plan)).not.toThrow()
 })
 
+test('invocation fork rejects setup/warmup fields the fresh-worker-per-sample path never applies', () => {
+  // The executor's invocation path spawns and shuts down a worker per sample:
+  // trial setup, per-sample setup, and warmup iterations have no surviving
+  // worker to act on, so a plan claiming them would embed a false record.
+  const base = bindingFor('end_to_end', 'spawn').plan // the valid invocation plan
+  expect(() => validatePlan(base)).not.toThrow()
+  expect(() => validatePlan({ ...base, trialSetup: 'prepare-lazy' })).toThrow(SetupError)
+  expect(() => validatePlan({ ...base, invocationSetup: 'reset' })).toThrow(SetupError)
+  expect(() => validatePlan({ ...base, warmup: 'iterations' })).toThrow(SetupError)
+})
+
 // warmupCount maps the plan's warmup policy onto the benchmark's configured count.
 test('warmupCount honours the plan policy', () => {
   expect(warmupCount('iterations', 3)).toBe(3)

@@ -12,8 +12,10 @@
 //                   flatquack's macros are defined once at session start.
 //   count        -> SELECT count(*) FROM _sink (untimed, engine-reported).
 //   extract      -> COPY _sink TO '<outCsv>' (untimed; the harness counts it).
-//   reset        -> DROP the sink (unused by the warm plan; provided anyway).
 //   shutdown     -> close the duckdb child, exit 0.
+//
+// No reset: the warm plan's invocationSetup is `none`, so the harness never
+// sends one to this hook; an unexpected verb is answered loudly below.
 //
 // The harness owns all timing; the phasesMs reported here are advisory (the
 // hook's own view of the CREATE-TABLE region — the .timer cross-check).
@@ -29,7 +31,7 @@ import {
   previewArgs,
   stripNoise,
   wrapSink,
-  countSql,
+  COUNT_SQL,
   extractSql,
   parseCount,
   memoKey,
@@ -102,7 +104,7 @@ async function doRun(view) {
 async function handle(name, body) {
   switch (name) {
     case 'capabilities':
-      return { ok: true, scenarios: [SCENARIO], verbs: ['count', 'extract'] }
+      return { ok: true, scenarios: [SCENARIO] }
     case 'prepare':
       dataDir = body.dataDir
       await ensureSession()
@@ -110,14 +112,11 @@ async function handle(name, body) {
     case 'run':
       return doRun(body.view)
     case 'count': {
-      const rows = parseCount(await (await ensureSession()).run(countSql()))
+      const rows = parseCount(await (await ensureSession()).run(COUNT_SQL))
       return { ok: true, rows }
     }
     case 'extract':
       await (await ensureSession()).run(extractSql(body.outCsv))
-      return { ok: true }
-    case 'reset':
-      if (session) await session.run(`DROP TABLE IF EXISTS _sink;`)
       return { ok: true }
     case 'shutdown':
       await session?.close()

@@ -30,10 +30,10 @@ export class DuckSession {
     this.child.stdout.setEncoding('utf8')
     this.child.stderr.setEncoding('utf8')
     this.seq = 0
-    this.pending = [] // FIFO of { sentinel, errStart, resolve, reject }
+    this.inflight = null // { sentinel, resolve, reject } — one statement at a time
     this.stdoutBuf = '' // unconsumed partial stdout line
     this.acc = [] // completed stdout lines for the in-flight command
-    this.errBuf = ''
+    this.errBuf = '' // stderr since the in-flight command started
     this.deadReason = null
 
     this.child.stdout.on('data', (chunk) => this.onStdout(chunk))
@@ -50,13 +50,13 @@ export class DuckSession {
     while ((nl = this.stdoutBuf.indexOf('\n')) >= 0) {
       const line = this.stdoutBuf.slice(0, nl).replace(ANSI_SGR, '')
       this.stdoutBuf = this.stdoutBuf.slice(nl + 1)
-      const head = this.pending[0]
-      if (head && line === head.sentinel) {
-        this.pending.shift()
-        const error = this.errBuf.slice(head.errStart).trim()
+      if (this.inflight && line === this.inflight.sentinel) {
+        const { resolve } = this.inflight
+        this.inflight = null
+        const error = this.errBuf.trim()
         const lines = this.acc
         this.acc = []
-        head.resolve({ lines, error })
+        resolve({ lines, error })
       } else {
         this.acc.push(line)
       }
@@ -65,7 +65,11 @@ export class DuckSession {
 
   onExit(code, signal, err) {
     this.deadReason = err ? err.message : `duckdb exited (code ${code}, signal ${signal})`
-    for (const p of this.pending.splice(0)) p.reject(new Error(this.deadReason))
+    if (this.inflight) {
+      const { reject } = this.inflight
+      this.inflight = null
+      reject(new Error(this.deadReason))
+    }
   }
 
   // Run one statement (or dot-command) and resolve once its sentinel returns,
@@ -73,9 +77,11 @@ export class DuckSession {
   // any stderr it wrote (empty on success).
   exec(sql) {
     if (this.deadReason) return Promise.reject(new Error(`duckdb session is dead: ${this.deadReason}`))
+    if (this.inflight) return Promise.reject(new Error('duckdb session busy: one statement at a time'))
     const sentinel = sentinelFor(++this.seq)
+    this.errBuf = '' // stderr belongs to the statement about to run
     return new Promise((resolve, reject) => {
-      this.pending.push({ sentinel, errStart: this.errBuf.length, resolve, reject })
+      this.inflight = { sentinel, resolve, reject }
       this.child.stdin.write(`${sql}\n.print ${sentinel}\n`)
     })
   }

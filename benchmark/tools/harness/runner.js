@@ -1,6 +1,6 @@
 import { rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { startConnector, SetupError, WorkerTimeout } from './worker.js'
+import { startConnector, lifecycleMode, SetupError, WorkerTimeout } from './worker.js'
 import { makeEngineTempDir } from './tempdir.js'
 import { datasetDir } from '../layout.js'
 import { assertionFor, countLines } from '../checkfile.js'
@@ -52,20 +52,12 @@ async function sendChecked(worker, cmd, timeoutMs) {
   return resp
 }
 
-// The manifest's lifecycle mode (benchmark-hook-format): `endpoint` is an
-// operator-managed connect-mode service; `cli` is a per-invocation CLI hook;
-// otherwise the harness spawns and terminates the hook service. Only connect
-// mode reuses a service the harness must never restart or reset without care.
-function modeOf(manifest) {
-  if (manifest.endpoint) return 'connect'
-  if (manifest.cli) return 'cli'
-  return 'spawn'
-}
-
 // The shared execution context threaded through the executor: everything the
-// per-case measurement loop needs that does not vary case to case.
+// per-case measurement loop needs that does not vary case to case. Both entry
+// points pass their caller-facing options straight through, so option defaults
+// live only here.
 function buildContext(opts) {
-  const { benchmark, size, dataRoot, manifest, checkfile, caseFilter } = opts
+  const { benchmark, size, dataRoot, manifest, caseFilter } = opts
   const { warmup = 1, measurement = 5 } = benchmark.iterations || {}
   const dataDir = datasetDir(dataRoot, benchmark.dataset.name, benchmark.dataset.version, size)
   const resources = benchmark.dataset.resources
@@ -73,14 +65,14 @@ function buildContext(opts) {
     benchmark,
     size,
     manifest,
-    mode: modeOf(manifest),
+    mode: lifecycleMode(manifest),
     dataDir,
     resources,
     resourceCounts: observeResourceCounts(dataDir, resources),
-    checkfile,
+    checkfile: opts.checkfile ?? null,
     warmup,
     measurement,
-    inactivityMs: opts.inactivityMs,
+    inactivityMs: opts.inactivityMs ?? 300_000,
     readinessMs: opts.readinessMs,
     plan: opts.plan,
     requiredScenario: opts.requiredScenario,
@@ -97,34 +89,18 @@ function buildContext(opts) {
 // scenarios are named plan bindings (design.md D2); the report assembler takes
 // the binding, never a raw plan, so no code path stamps an official scenario
 // onto a custom-plan run.
-export async function runSuite({
-  benchmark,
-  size,
-  dataRoot,
-  manifest,
-  checkfile = null,
-  scenario = 'preloaded_repeated',
-  inactivityMs = 300_000,
-  readinessMs,
-  caseFilter,
-}) {
-  const binding = bindingFor(scenario, modeOf(manifest))
+// opts: { benchmark, size, dataRoot, manifest, checkfile?, scenario?,
+// inactivityMs?, readinessMs?, caseFilter? } — everything but `scenario` is
+// forwarded verbatim to buildContext, which owns the defaults. Official binding
+// plans are the harness's own literals, pinned valid by the plan test suite, so
+// they are not re-validated here.
+export async function runSuite(opts) {
+  const scenario = opts.scenario ?? 'preloaded_repeated'
+  const binding = bindingFor(scenario, lifecycleMode(opts.manifest))
   if (!binding) {
     throw new Error(`unknown scenario "${scenario}"; valid scenarios are: ${OFFICIAL_SCENARIOS.join(', ')}`)
   }
-  validatePlan(binding.plan)
-  const ctx = buildContext({
-    benchmark,
-    size,
-    dataRoot,
-    manifest,
-    checkfile,
-    inactivityMs,
-    readinessMs,
-    caseFilter,
-    plan: binding.plan,
-    requiredScenario: scenario,
-  })
+  const ctx = buildContext({ ...opts, plan: binding.plan, requiredScenario: scenario })
   const results = await executeCases(ctx)
   return assembleReport(ctx, results, { scenario: binding.scenario, phases: binding.phases })
 }
@@ -136,19 +112,10 @@ export async function runSuite({
 // deliberately non-conforming internal record (assembleInternalReport), never an
 // official scenario stamp: the scenario id must be a caller-supplied
 // `internal:<name>`, and report assembly stamps exactly that.
-export async function runPlanSuite({
-  plan,
-  scenarioId,
-  phases,
-  benchmark,
-  size,
-  dataRoot,
-  manifest,
-  checkfile = null,
-  inactivityMs = 300_000,
-  readinessMs,
-  caseFilter,
-}) {
+// opts: { plan, scenarioId, phases } plus the same suite options as runSuite
+// (minus `scenario`). The plan is untrusted caller input, validated here.
+export async function runPlanSuite(opts) {
+  const { plan, scenarioId, phases } = opts
   validatePlan(plan)
   if (!/^internal:[A-Za-z0-9._-]+$/.test(scenarioId ?? '')) {
     throw new SetupError(
@@ -158,18 +125,7 @@ export async function runPlanSuite({
   if (!Array.isArray(phases) || phases.length === 0) {
     throw new SetupError('custom-plan run requires truthful non-empty `phases` describing the timed region')
   }
-  const ctx = buildContext({
-    benchmark,
-    size,
-    dataRoot,
-    manifest,
-    checkfile,
-    inactivityMs,
-    readinessMs,
-    caseFilter,
-    plan,
-    requiredScenario: scenarioId,
-  })
+  const ctx = buildContext({ ...opts, requiredScenario: scenarioId })
   const results = await executeCases(ctx)
   return assembleInternalReport(ctx, results, { scenarioId, phases })
 }

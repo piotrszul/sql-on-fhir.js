@@ -35,9 +35,7 @@ export function wrapSink(querySql) {
 // The untimed post-loop count verb: the engine's own count of the materialized
 // sink (sound because the table sink already forced full materialization inside
 // the timed region — design.md D4).
-export function countSql() {
-  return `SELECT count(*) FROM ${SINK};`
-}
+export const COUNT_SQL = `SELECT count(*) FROM ${SINK};`
 
 // The untimed post-loop extract verb: write the sink to the CSV the harness
 // named (same output-format contract as run), so the harness counts the file.

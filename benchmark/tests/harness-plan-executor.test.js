@@ -1,4 +1,4 @@
-import { test, expect } from 'bun:test'
+import { test, expect, beforeAll, afterAll } from 'bun:test'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -221,11 +221,27 @@ test('runPlanSuite rejects an unsound plan (post-loop-count with a csv sink) bef
   rmSync(dataRoot, { recursive: true, force: true })
 })
 
+// -- 4.x the internal record --
+//
+// Tests 4.1–4.5 and the file writer all make read-only assertions on the same
+// record, so ONE shared warm run feeds them all (each run spawns hook worker
+// processes and seeds a dataset — six identical runs would be pure waste).
+
+let sharedDataRoot
+let sharedRecord
+beforeAll(async () => {
+  sharedDataRoot = seedData()
+  sharedRecord = await runWarm({
+    dataRoot: sharedDataRoot,
+    manifest: internalManifest(join(tmpdir(), 'shared.log')),
+  })
+})
+afterAll(() => rmSync(sharedDataRoot, { recursive: true, force: true }))
+
 // -- 4.1 the internal record is report-shaped, truthful, plan-embedding --
 
-test('runPlanSuite emits a report-shaped record with the internal scenario and the plan embedded', async () => {
-  const dataRoot = seedData()
-  const record = await runWarm({ dataRoot, manifest: internalManifest(join(tmpdir(), 'c.log')) })
+test('runPlanSuite emits a report-shaped record with the internal scenario and the plan embedded', () => {
+  const record = sharedRecord
   expect(record.measurement.scenario).toBe('internal:warm-table-sink')
   expect(record.measurement.phases).toEqual(['load', 'execute', 'extract'])
   expect(record.measurement.sink).toBe('table')
@@ -233,71 +249,55 @@ test('runPlanSuite emits a report-shaped record with the internal scenario and t
   expect(record.measurement.iterations).toBe(2)
   expect(record.measurement.plan).toEqual(WARM_PLAN)
   expect(record.implementation.variant).toBe('internal-warm-table-sink')
-  rmSync(dataRoot, { recursive: true, force: true })
 })
 
 // -- 4.2 fail-closed against the published contract --
 
-test('the internal record FAILS the published report schema (non-official scenario + extra plan block)', async () => {
-  const dataRoot = seedData()
-  const record = await runWarm({ dataRoot, manifest: internalManifest(join(tmpdir(), 'c.log')) })
-  expect(validateReport(record)).toBe(false)
+test('the internal record FAILS the published report schema (non-official scenario + extra plan block)', () => {
+  expect(validateReport(sharedRecord)).toBe(false)
   // No code path launders a raw plan into an official scenario stamp.
-  expect(['preloaded_repeated', 'end_to_end']).not.toContain(record.measurement.scenario)
-  rmSync(dataRoot, { recursive: true, force: true })
+  expect(['preloaded_repeated', 'end_to_end']).not.toContain(sharedRecord.measurement.scenario)
 })
 
 // -- 4.3 the staging-local schema accepts the internal shape --
 
 test('the internal record validates against the staging-local internal-report schema', async () => {
-  const dataRoot = seedData()
-  const record = await runWarm({ dataRoot, manifest: internalManifest(join(tmpdir(), 'c.log')) })
-  expect(validateInternal(record)).toBe(true)
+  expect(validateInternal(sharedRecord)).toBe(true)
   // and the staging schema rejects an official-scenario record (its guard is real)
   const official = await runSuite({
     benchmark: suite,
     size: 's',
-    dataRoot,
+    dataRoot: sharedDataRoot,
     manifest: { command: ['bun', fakeHookJs], implementation: { engine: { name: 'x', version: '1' } } },
     checkfile,
   })
   expect(validateInternal(official)).toBe(false)
-  rmSync(dataRoot, { recursive: true, force: true })
 })
 
 // -- 4.4 JMH projects from the internal record unchanged --
 
-test('projectJmh yields JMH files from the internal record (labels carry no conformance claim)', async () => {
-  const dataRoot = seedData()
-  const record = await runWarm({ dataRoot, manifest: internalManifest(join(tmpdir(), 'c.log')) })
-  const files = projectJmh(record)
+test('projectJmh yields JMH files from the internal record (labels carry no conformance claim)', () => {
+  const files = projectJmh(sharedRecord)
   expect(files.length).toBe(1)
   expect(files[0].filename).toMatch(/internal-warm-table-sink/)
   const entries = JSON.parse(files[0].content)
   expect(entries.map((e) => e.benchmark).sort()).toEqual(['fake-suite.cond', 'fake-suite.obs'])
-  rmSync(dataRoot, { recursive: true, force: true })
 })
 
 // -- 4.5 advisory phase splits are still recorded --
 
-test('hook-reported phasesMs land in the internal record advisory phaseSamplesMs', async () => {
-  const dataRoot = seedData()
-  const record = await runWarm({ dataRoot, manifest: internalManifest(join(tmpdir(), 'c.log')) })
-  const obs = record.results['fake-suite'].cases.find((c) => c.id === 'obs')
+test('hook-reported phasesMs land in the internal record advisory phaseSamplesMs', () => {
+  const obs = sharedRecord.results['fake-suite'].cases.find((c) => c.id === 'obs')
   expect(obs.phaseSamplesMs.execute).toHaveLength(2) // one per measured sample
-  rmSync(dataRoot, { recursive: true, force: true })
 })
 
 // -- internal-report file writer --
 
-test('writeInternalReport names the file <stem>.internal-report.json', async () => {
-  const dataRoot = seedData()
-  const record = await runWarm({ dataRoot, manifest: internalManifest(join(tmpdir(), 'c.log')) })
+test('writeInternalReport names the file <stem>.internal-report.json', () => {
   const outDir = mkdtempSync(join(tmpdir(), 'irep-'))
-  const path = writeInternalReport(record, outDir)
+  const path = writeInternalReport(sharedRecord, outDir)
   expect(path).toMatch(/\.internal-report\.json$/)
-  expect(internalReportStem(record)).toMatch(/fake-suite-s-duckdb-1\.5\.3/)
+  expect(internalReportStem(sharedRecord)).toMatch(/fake-suite-s-duckdb-1\.5\.3/)
   expect(JSON.parse(readFileSync(path, 'utf8')).measurement.scenario).toBe('internal:warm-table-sink')
   rmSync(outDir, { recursive: true, force: true })
-  rmSync(dataRoot, { recursive: true, force: true })
 })

@@ -68,7 +68,6 @@ export async function runDriver(argv) {
   const checkfile = readCheckfile(checkfileFor(suitePath))
   const outDir = opts.out || '.'
 
-  const summaries = []
   for (const hookPath of opts.hooks) {
     const manifest = readManifest(hookPath)
     const variant = manifest.implementation?.variant
@@ -91,12 +90,10 @@ export async function runDriver(argv) {
     const jmhPaths = writeJmhExports(record, outDir)
     const cases = record.results[benchmark.name].cases
     const verified = cases.filter((c) => c.verified).length
-    summaries.push({ variant, recordPath, jmh: jmhPaths.length, verified, total: cases.length })
     console.error(
       `${variant}: ${verified}/${cases.length} verified -> ${recordPath} (+${jmhPaths.length} JMH)`,
     )
   }
-  return summaries
 }
 
 if (import.meta.main) {
