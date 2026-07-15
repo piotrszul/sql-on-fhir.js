@@ -1,6 +1,6 @@
 ---
 name: validation-cycle
-description: Use when starting or resuming one of the benchmark-contract validation changes (validate-flatquack-hook, validate-pathling-cli-hook, validate-pathling-server-hook) in a fresh session, or when asked to "do"/"implement"/"continue" one of them.
+description: Use when starting or resuming one of the benchmark-contract validation changes (validate-flatquack-hook, validate-pathling-cli-hook, validate-pathling-server-hook, add-measurement-plans) in a fresh session, or when asked to "do"/"implement"/"continue" one of them.
 ---
 
 # Benchmark validation cycle
@@ -11,7 +11,15 @@ design (`docs/superpowers/specs/2026-07-07-benchmark-validation-staging-hooks-de
 and the findings taxonomy (`benchmark/staging-hooks/README.md`) are normative —
 read all three before acting. Implementation order:
 `validate-flatquack-hook` → `validate-pathling-cli-hook` →
-`validate-pathling-server-hook`.
+`validate-pathling-server-hook` → `add-measurement-plans`.
+
+`add-measurement-plans` differs from the three hook validations in its brief
+(internal-tuning reuse: plan-driven measurement core + a staging flatquack
+DuckDB-session benchmark) but follows the same procedure. Its staging runs
+emit JMH files plus a lossless report-shaped record that self-describes its
+plan under a non-official scenario string — deliberately schema-invalid, so
+existing consumers reject it. Official scenario names are derivable only from
+scenario bindings, never from a raw plan (the proposal's honesty guard).
 
 ## Procedure — every numbered step is REQUIRED, in this order
 

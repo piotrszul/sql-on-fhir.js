@@ -1,0 +1,113 @@
+{
+  "$id": "https://sql-on-fhir.org/ig/staging/flatquack-internal-report",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Staging-local internal measurement record schema (NOT a public contract)",
+  "description": "Validates the lossless, self-describing record a custom measurement plan emits (design.md add-measurement-plans D5). Deliberately distinct from benchmark-report.schema.json: it REQUIRES the non-official `internal:<name>` scenario and the embedded `measurement.plan` descriptor that make the record fail-closed against the published contract. Lives under staging-hooks/ and dies with it at migration; no external consumer depends on it.",
+  "type": "object",
+  "required": ["implementation", "measurement", "results"],
+  "definitions": {
+    "nameVersion": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": { "name": { "type": "string" }, "version": { "type": "string" } },
+      "additionalProperties": false
+    }
+  },
+  "properties": {
+    "implementation": {
+      "type": "object",
+      "required": ["engine"],
+      "properties": {
+        "engine": { "$ref": "#/definitions/nameVersion" },
+        "binding": { "$ref": "#/definitions/nameVersion" },
+        "variant": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "benchmark": { "$ref": "#/definitions/nameVersion" },
+    "dataset": { "$ref": "#/definitions/nameVersion" },
+    "measurement": {
+      "type": "object",
+      "required": ["scenario", "phases", "sink", "warmup", "iterations", "plan"],
+      "properties": {
+        "scenario": {
+          "type": "string",
+          "pattern": "^internal:[A-Za-z0-9._-]+$",
+          "description": "A namespaced, deliberately non-official identifier so every consumer of the published report schema rejects this record."
+        },
+        "phases": { "type": "array", "items": { "enum": ["load", "execute", "extract"] } },
+        "sink": { "enum": ["table", "csv", "memory", "other"] },
+        "warmup": { "type": "integer", "minimum": 0 },
+        "iterations": { "type": "integer", "minimum": 1 },
+        "plan": {
+          "type": "object",
+          "description": "The measurement plan record embedded verbatim, so the record self-describes exactly what was measured — including the verification value, which records the row-count's provenance (engine-reported count vs harness-counted extract).",
+          "required": [
+            "forkLevel",
+            "trialSetup",
+            "invocationSetup",
+            "timedRegion",
+            "sink",
+            "verification",
+            "warmup"
+          ],
+          "properties": {
+            "forkLevel": { "enum": ["suite", "trial", "invocation"] },
+            "trialSetup": { "enum": ["prepare-lazy", "none"] },
+            "invocationSetup": { "enum": ["reset", "none"] },
+            "timedRegion": { "type": "array", "items": { "enum": ["prepare", "run"] } },
+            "sink": { "enum": ["csv", "table"] },
+            "verification": { "enum": ["in-run-csv", "post-loop-count", "post-loop-extract"] },
+            "warmup": { "enum": ["iterations", "zero"] }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "results": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["size", "cases"],
+        "properties": {
+          "size": { "type": "string" },
+          "fhirVersion": { "type": "string" },
+          "resourceCounts": { "type": "object", "additionalProperties": { "type": "integer" } },
+          "cases": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "status"],
+              "properties": {
+                "id": { "type": "string" },
+                "status": {
+                  "enum": [
+                    "ok",
+                    "count_mismatch",
+                    "generation_error",
+                    "execution_error",
+                    "timeout",
+                    "malformed"
+                  ]
+                },
+                "message": { "type": "string" },
+                "inputRows": { "type": "integer" },
+                "outputRows": { "type": "integer" },
+                "samplesMs": { "type": "array", "items": { "type": "number" } },
+                "stats": {
+                  "type": "object",
+                  "required": ["mean", "stddev", "min", "max", "median"]
+                },
+                "phaseSamplesMs": { "type": "object" },
+                "verified": { "type": "boolean" }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}

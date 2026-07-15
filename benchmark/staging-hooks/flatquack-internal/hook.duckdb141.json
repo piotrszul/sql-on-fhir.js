@@ -1,0 +1,12 @@
+{
+  "command": ["bun", "run", "flatquack-internal-hook.js"],
+  "env": {
+    "DUCKDB_BIN": "/Users/szu004/dev/sof-benchmark/bin/duckdb-1.4.1",
+    "FLATQUACK_CLI": "/Users/szu004/third/flatquack/.worktrees/master-fix/src/cli.js"
+  },
+  "implementation": {
+    "engine": { "name": "duckdb", "version": "1.4.1" },
+    "binding": { "name": "flatquack", "version": "master-fix-58f5126" },
+    "variant": "internal-warm-table-sink-duckdb141"
+  }
+}

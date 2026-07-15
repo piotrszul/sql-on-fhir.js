@@ -228,6 +228,48 @@ act as its own runner, in any language:
 Both routes emit the same report format, so downstream consumers are
 indifferent to the route.
 
+## Internal reuse: measurement plans (NOT a public route)
+
+The harness drives every run through one generic single-shot executor over a
+declarative **measurement plan** — a closed data record (no callbacks) over fork
+level (`suite` | `trial` | `invocation`), untimed trial setup, untimed
+invocation setup, timed region, sink (`csv` | `table`), verification
+(`in-run-csv` | `post-loop-count` | `post-loop-extract`), and warmup policy. The
+two official scenarios are simply named plan **bindings**:
+`preloaded_repeated` and `end_to_end` resolve to fixed plans, and their
+observable semantics are unchanged. This section is **internal harness
+architecture, not a public contract**: the plan vocabulary carries no
+comparability meaning, and nothing here changes the schemas, the hook protocol,
+or the CLI.
+
+The reuse case is intra-stack performance tuning (e.g. comparing engine
+configurations or build refs), where the public scenario vocabulary must not
+move. Two guarantees keep such runs honest:
+
+- **The public CLI drives only official scenarios.** `bench:harness run`
+  accepts `preloaded_repeated` / `end_to_end` and nothing else; there is no
+  `--plan` flag. A custom plan is reachable only through the harness module
+  entry point `runPlanSuite({ plan, scenarioId, phases, … })`.
+- **A custom-plan run is fail-closed by construction.** It emits a lossless,
+  report-shaped `<stem>.internal-report.json` whose `measurement.scenario` is a
+  namespaced non-official id (`internal:<name>`), whose `measurement` truthfully
+  declares the phases/sink/warmup actually driven, and which embeds the plan
+  verbatim as `measurement.plan` (so the row-count's provenance —
+  engine-reported `count` vs harness-counted `extract` — is recorded in the data
+  it qualifies). The published `benchmark-report.schema.json`'s closed
+  `scenario` enum makes this record fail validation everywhere the contract is
+  enforced, so it can never be mistaken for a conforming, comparable report.
+  Official scenario names are derivable only from bindings; no code path stamps
+  one onto a raw plan. The JMH export still projects (labels carry no
+  conformance claim), and the executor rejects an unsound plan
+  (`post-loop-count` without a materializing `table` sink) as a loud setup
+  failure before any case runs.
+
+The worked example is the temporary staging benchmark under
+`staging-hooks/flatquack-internal/` (a flatquack DuckDB-session hook + driver);
+it migrates out with the rest of `staging-hooks/`. Whether any of this graduates
+into the public contract is a deliberately deferred, findings-informed decision.
+
 ## Bless (reference implementation only)
 
 `bun run bench:bless -- <file> --size <s> [--only <ids>] [--exclude <ids>]`
