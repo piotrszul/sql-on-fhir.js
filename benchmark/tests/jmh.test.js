@@ -128,11 +128,10 @@ test('secondaryMetrics.rows carries outputRows in a rows unit', () => {
   expect(e.secondaryMetrics.rows.scoreUnit).toBe('rows')
 })
 
-test('benchmark name is <benchmark.name>.<case.id>; size and implementation are params', () => {
+test('benchmark name is <benchmark.name>.<case.id>; params carry size only, not implementation', () => {
   const e = JSON.parse(projectJmh(baseReport())[0].content)[0]
   expect(e.benchmark).toBe('clinical-flat.obs')
-  expect(e.params.size).toBe('s')
-  expect(e.params.implementation).toBe('sof-js-2.0.0')
+  expect(e.params).toEqual({ size: 's' })
 })
 
 test('only ok cells with samples are exported; count_mismatch never appears', () => {
