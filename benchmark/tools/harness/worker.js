@@ -80,17 +80,29 @@ function makeSend(base, isDead) {
   }
 }
 
+// The manifest's lifecycle mode (benchmark-hook-format): `endpoint` names an
+// operator-managed connect-mode service the harness must never restart;
+// `cli` a per-invocation CLI hook; otherwise `command` names a service the
+// harness spawns and terminates. The single source of the manifest->mode
+// mapping — startConnector dispatches through it, and the runner keys
+// mode-dependent choreography off the same answer.
+export function lifecycleMode(manifest) {
+  if (manifest.endpoint) return 'connect'
+  if (manifest.cli) return 'cli'
+  return 'spawn'
+}
+
 // Bring up a connector per the manifest's lifecycle mode (the connector SPI,
-// benchmark-harness spec): `endpoint` -> HTTP connect (operator-managed
-// service), `cli` -> the CLI connector (fresh engine process per run),
-// otherwise `command` -> HTTP spawn (service started with an OS-allocated
-// port in HOOK_PORT, readiness polled). Resolves once `capabilities` has
-// answered (spawn and readiness are untimed by every scenario); the response
-// is kept on the returned connector so callers gate scenarios without a
-// second round-trip.
+// benchmark-harness spec): connect -> HTTP connect, cli -> the CLI connector
+// (fresh engine process per run), spawn -> HTTP spawn (service started with an
+// OS-allocated port in HOOK_PORT, readiness polled). Resolves once
+// `capabilities` has answered (spawn and readiness are untimed by every
+// scenario); the response is kept on the returned connector so callers gate
+// scenarios without a second round-trip.
 export async function startConnector(manifest, opts = {}) {
-  if (manifest.endpoint) return connectHook(manifest)
-  if (manifest.cli) return (await import('./cli-connector.js')).startCliConnector(manifest)
+  const mode = lifecycleMode(manifest)
+  if (mode === 'connect') return connectHook(manifest)
+  if (mode === 'cli') return (await import('./cli-connector.js')).startCliConnector(manifest)
   return spawnHook(manifest, opts)
 }
 

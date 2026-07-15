@@ -33,6 +33,10 @@ if (process.env.FAKE_NEVER_READY) {
 
 function serve() {
   let counts = {}
+  // The last table-sink run's row count, materialized in-engine (design.md D4):
+  // a table-sink `run` (no outCsv) records it here; `count` reports it and
+  // `extract` writes it out, both untimed and outside every sample.
+  let sinkRows = null
 
   const server = createServer((req, res) => {
     if (process.env.FAKE_LOG) appendFileSync(process.env.FAKE_LOG, `${req.method} ${req.url}\n`)
@@ -81,6 +85,12 @@ function serve() {
         }
         if (marker === 'FailMe') return reply({ ok: false, error: 'engine exploded' })
         const rows = counts[marker] ?? 0
+        // Table sink (no outCsv): materialize in-engine, write no CSV; the row
+        // count is read later by the untimed count/extract verbs.
+        if (body.outCsv == null) {
+          sinkRows = rows
+          return reply({ ok: true, phasesMs: { execute: 1.0 } })
+        }
         writeFileSync(body.outCsv, csvOf(rows))
         const reported = marker === 'MisreportMe' ? rows + 5 : rows
         const finish = () =>
@@ -88,8 +98,17 @@ function serve() {
         if (marker === 'SlowMe') return void setTimeout(finish, 100)
         return finish()
       }
+      // Post-loop verification verbs (design.md D4), both untimed. count reports
+      // the engine's own count of the materialized sink; extract writes the sink
+      // to a CSV the harness counts itself.
+      case '/count':
+        return reply({ ok: true, rows: sinkRows ?? 0 })
+      case '/extract':
+        writeFileSync(body.outCsv, csvOf(sinkRows ?? 0))
+        return reply({ ok: true })
       case '/reset':
         counts = {}
+        sinkRows = null
         return reply({ ok: true })
       case '/shutdown':
         if (process.env.FAKE_IGNORE_SIGTERM) return reply({ ok: true }) // misbehave: acknowledge, never exit

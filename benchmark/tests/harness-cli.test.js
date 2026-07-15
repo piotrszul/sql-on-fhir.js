@@ -276,3 +276,26 @@ test('exec debug mode sends one command and prints its response', async () => {
   expect(resp.ok).toBe(true)
   expect(resp.scenarios).toContain('preloaded_repeated')
 })
+
+test('the public CLI cannot request a custom (internal:) plan — that pathway is module-only', async () => {
+  // The honesty guard on the CLI surface: --scenario only resolves official
+  // bindings, so a non-official internal:<name> scenario (the custom-plan
+  // pathway, reachable only via runPlanSuite) is refused before any worker
+  // starts. There is no --plan flag; runSuite rejects the scenario by name.
+  const { root, dataRoot, suitePath } = seedWorkspace()
+  await expect(
+    runCli([
+      'run',
+      '--hook',
+      fakeHook,
+      suitePath,
+      '--size',
+      's',
+      '--data',
+      dataRoot,
+      '--scenario',
+      'internal:warm-table-sink',
+    ]),
+  ).rejects.toThrow(/unknown scenario "internal:warm-table-sink"/)
+  rmSync(root, { recursive: true, force: true })
+})
