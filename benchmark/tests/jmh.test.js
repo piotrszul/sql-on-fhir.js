@@ -276,3 +276,12 @@ test('writeJmhExports writes nothing when there are no ok cells', () => {
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('source file has no raw NUL bytes, so it stays diffable/greppable text', () => {
+  // A NUL-separated key needs a byte that can't appear in benchmark/size/impl
+  // strings, but the separator must be written as the '\x00' escape sequence,
+  // not embedded as a literal 0x00 byte — a literal NUL makes git/most tools
+  // treat the file as binary (diffs collapse to "Binary files ... differ").
+  const source = readFileSync(new URL('../tools/harness/jmh.js', import.meta.url))
+  expect(source.includes(0)).toBe(false)
+})
